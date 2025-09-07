@@ -1,0 +1,35 @@
+name: Build & Deploy QA Hub (JamesIves Action)
+
+on:
+  push:
+    branches: [ test ]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install & Build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: deploy
+          folder: build
+          clean: true
+          token: ${{ secrets.GITHUB_TOKEN }}
