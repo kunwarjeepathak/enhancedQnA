@@ -33,18 +33,20 @@ export default function SubItem({ item }: SubItemProps) {
             <MarkdownRenderer content={item.answerMd} />
             {item.imageUrl && (
                 <div className="qa-image-wrapper">
-                  <img
-                    src={item.imageUrl}
-                    alt="QA related"
-                    className="qa-image"
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => setModalOpen(true)}
-                  />
-                  <ImageModal
-                    src={modalOpen ? item.imageUrl : ''}
-                    alt="QA related"
-                    onClose={() => setModalOpen(false)}
-                  />
+                   <img 
+                     src={process.env.PUBLIC_URL + '/assets/' + item.imageUrl?.replace('/assets/', '')}
+                     alt="QA related" 
+                     className="qa-image" 
+                     style={{ cursor: 'pointer' }} 
+                     onClick={() => setModalOpen(true)} 
+                   />
+                   {modalOpen && (
+                     <ImageModal
+                       src={process.env.PUBLIC_URL + '/assets/' + item.imageUrl?.replace('/assets/', '')}
+                       alt="QA related"
+                       onClose={() => setModalOpen(false)}
+                     />
+                   )}
                 </div>
             )}
           </>
