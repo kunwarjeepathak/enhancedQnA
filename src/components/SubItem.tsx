@@ -30,7 +30,6 @@ export default function SubItem({ item }: SubItemProps) {
       <div className={`sub-answer${open ? ' open' : ''}`}>
         {open && (
           <>
-            <MarkdownRenderer content={item.answerMd} />
             {item.imageUrl && (
                 <div className="qa-image-wrapper">
                    <img 
@@ -49,6 +48,7 @@ export default function SubItem({ item }: SubItemProps) {
                    )}
                 </div>
             )}
+            <MarkdownRenderer content={item.answerMd} />
           </>
         )}
       </div>

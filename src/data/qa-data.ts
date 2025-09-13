@@ -22,7 +22,7 @@ title: 'Multithreading',
 subItems: [
 {
 question: 'Explain Java Thread Lifecycle in depth',
-imageUrl: '/assets/Architecture_diagram.png',
+imageUrl: '/assets/ThreadLifeCycle.png',
 answerMd: `
 # Detailed Java Thread Lifecycle
 
@@ -794,6 +794,7 @@ subItems: [
 // To add under your desired Topic’s `subQuestions` array in src/qa-data.ts:
 {
 question: "How do you print all words that appear more than once using only basic for loops (no maps/collections)?",
+imageUrl: '/assets/flowchart_duplicate.png',
 answerMd: `
 ### Explanation
 
@@ -992,6 +993,7 @@ cab
 },// To add under your desired Topic’s `subItems` array in src/qa-data.ts:
 {
 question: "How do you find the 2nd largest number in an array using simple loops and Java Streams?",
+imageUrl: '/assets/flowchart_2ndLargest.png',
 answerMd: `
 
 ### Explanation
