@@ -1089,7 +1089,7 @@ header input::placeholder {
 .qa-card img {
   display: block;
   max-width: 100%;
-  max-height: 800px;
+  max-height: 400px;
   width: auto;
   height: auto;
   margin: 0.25rem auto;

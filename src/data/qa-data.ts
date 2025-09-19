@@ -16978,7 +16978,116 @@ subItems: [{
 - [ ] Track analytics and iterate
 
 `
-}]}
+}]},
+{
+category: 'azure',
+title: 'Azure Functions',
+subItems: [
+{
+  question: 'How do I set up Azure Function bindings for event-driven workflows?',
+  answerMd: `
+# 🚀 Modular Onboarding Guide: Azure Function Bindings
+
+---
+
+## 🧱 1. Project Setup
+
+\`\`\`bash
+# Create a new Azure Function project (Python example)
+func init risk-enrichment-fn --worker-runtime python --docker
+cd risk-enrichment-fn
+
+# Create a new function triggered by Event Hub
+func new --name EnrichRiskEvent --template "Azure Event Hub trigger"
+\`\`\`
+
+> ✅ Supports other templates: BlobTrigger, CosmosDBTrigger, HttpTrigger, TimerTrigger
+
+---
+
+## 🔗 2. Configure Bindings in \`function.json\`
+
+\`\`\`json
+{
+  "bindings": [
+    {
+      "type": "eventHubTrigger",
+      "name": "event",
+      "direction": "in",
+      "eventHubName": "patient-events",
+      "connection": "EventHubConnection",
+      "cardinality": "many",
+      "consumerGroup": "$Default"
+    },
+    {
+      "type": "cosmosDB",
+      "name": "outputDocument",
+      "direction": "out",
+      "databaseName": "RiskDB",
+      "collectionName": "Profiles",
+      "connectionStringSetting": "CosmosDBConnection"
+    }
+  ]
+}
+\`\`\`
+
+> 🔐 Connection strings should be stored in **Azure Key Vault** or **local.settings.json** during development.
+
+---
+
+## 🧠 3. Function Logic (Python Example)
+
+\`\`\`python
+import logging
+import azure.functions as func
+import json
+
+def main(event: func.EventHubEvent, outputDocument: func.Out[func.Document]):
+    for e in event:
+        data = json.loads(e.get_body().decode('utf-8'))
+        enriched = {
+            "id": data["patientId"],
+            "riskScore": calculate_risk(data),
+            "timestamp": data["timestamp"]
+        }
+        outputDocument.set(func.Document.from_dict(enriched))
+\`\`\`
+
+> 🧪 Replace \`calculate_risk()\` with your ML model or scoring logic.
+
+---
+
+## 🧭 4. Local Development Tips
+
+- Use \`Azure Storage Emulator\` or \`Azurite\` for local blob/queue testing.
+- Use \`func start\` to run locally and \`Postman\` or \`Event Grid Explorer\` to simulate events.
+- Use \`func azure functionapp publish <app-name>\` to deploy.
+
+---
+
+## 📊 5. Monitoring & Observability
+
+- Enable **Application Insights** for tracing and performance metrics.
+- Use **Azure Monitor Logs** to track function execution and failures.
+- Set up **Alerts** on failure count, execution time, or output anomalies.
+
+---
+
+## 🧩 6. Common Bindings Reference
+
+| Trigger Type       | Use Case Example                     |
+|--------------------|--------------------------------------|
+| Event Hub Trigger  | Real-time ingestion of telemetry     |
+| Blob Trigger       | File-based ETL or image processing   |
+| Cosmos DB Trigger  | React to DB changes (change feed)    |
+| Queue Trigger      | Background task processing           |
+| HTTP Trigger       | API endpoints or webhook receivers   |
+`,
+  important: true
+,
+imageUrl: '/assets/Azure_Functions.png',
+}]
+},
 ];
 
 export default data;
