@@ -1066,7 +1066,8 @@ What:
 ---
 
 With these seven enhancements, Java 17 makes your code safer, more concise, and faster—helping teams across India and beyond upgrade with confidence.
-`
+`,
+imageUrls: ['/assets/Java17.png','/assets/Java17_1.png','/assets/Java17_2.png'],
     },{
   question: 'What are the main features of Java 8 and why were they introduced?',
   answerMd: `
@@ -8919,7 +8920,7 @@ aws glue start-job-run --job-name my-glue-job
 },
 {
 category: 'react',
-title: 'Banking Finance App React',
+title: 'React App from Scratch',
 subItems: [
 {
 question: 'How do I build a “Banking Finance App” React app from scratch covering every core React concept, using an Indian storytelling format with diagrams?',
@@ -9221,15 +9222,9 @@ v                 +-----------------------+
 ### 🌟 Epilogue
 
 Every hook, pattern, and component Arjun built became a road, vault, or ledger entry in DhanPur’s new digital heart a story told in code, diagrams, and the hum of smooth transactions.
-`
-}
-]
-},
-{
-category: 'react',
-title: 'Healthcare App React',
-subItems: [
-{
+`,
+imageUrls: ['/assets/React_Bank_App.png','/assets/React_Bank_App_2.png'],
+},{
 question: 'How do I build a “Healthcare Hub” React app from scratch covering every core React concept, using an Indian storytelling format with diagrams?',
 answerMd: `
 # 🏥 Healthcare Hub React App An Indian Tale with Visual Maps
@@ -9752,15 +9747,7 @@ v                 +-----------------------+
 
 With components as consultation rooms, context as the clinic’s vault, reducers as the master schedule, and effects as messengers to the server, **AarogyaPur’s Healthcare Hub** hums with care. Every click becomes kindness, every render a reassurance React, in service of healing.
 `
-}
-]
-},
-
-{
-category: 'react',
-title: 'Village Market React App',
-subItems: [
-{
+},{
 question: 'How do I build a “Village Market” React app from scratch covering every core React concept, using an Indian storytelling format?',
 answerMd: `
 ### The Village Market React App: An Indian Tale
@@ -15160,7 +15147,7 @@ return svc.resolve(alias)
 - Observability: monitor QPS, latency, cache hit rate, errors 📡
 - URL validation & rate‑limit per client 🔒
 `,
-imageUrls: ['/assets/shortenUrl.png']
+imageUrls: ['/assets/shortenUrl.png', '/assets/shortenUrl2.png']
 },{
 question: 'How do you implement an event booking system  with Concurrency and Validation that prevents overbooking under concurrent requests, allows cancellations, and provides event-wise summaries using in-memory storage?',
 answerMd: `
@@ -15366,7 +15353,7 @@ executor.shutdown();
 - Push live seat counts via WebSocket
 - Implement soft deletes and audit trails for cancellations
 `,
-imageUrls: ['/assets/Event_Booking_System.png']
+imageUrls: ['/assets/Event_Booking_System.png','/assets/Event_Booking_System2.png']
 },{
       question: 'How would you design Amazon.com/Flipkart?',
       answerMd: `

@@ -8,6 +8,7 @@ interface ImageModalProps {
 
 export default function ImageModal({ src, alt, onClose }: ImageModalProps) {
   const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const [isMaximized, setIsMaximized] = React.useState(false);
 
   useEffect(() => {
     if (src && closeBtnRef.current) {
@@ -39,9 +40,17 @@ export default function ImageModal({ src, alt, onClose }: ImageModalProps) {
         <img
           src={src}
           alt={alt || 'Preview'}
-          className="modal-image"
+          className={isMaximized ? "modal-image maximized" : "modal-image"}
           role="img"
         />
+        <button
+          className="modal-maximize"
+          onClick={() => setIsMaximized(m => !m)}
+          aria-label={isMaximized ? "Minimize image" : "Maximize image"}
+          style={{ position: 'absolute', top: '0.5rem', left: '0.5rem', zIndex: 10001 }}
+        >
+          {isMaximized ? '🗗' : '🗖'}
+        </button>
         <button
           className="modal-close"
           onClick={onClose}
