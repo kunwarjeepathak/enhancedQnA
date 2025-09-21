@@ -3,7 +3,7 @@ export interface SubItemData {
 question: string;
 answerMd: string;
 important?: boolean; // Add this property
-imageUrl?:string;
+imageUrls?: string[];
 }
 
 export interface QACardData {
@@ -11,8 +11,7 @@ category: string;
 title: string;
 subItems: SubItemData[];
 important?: boolean;
-
-  imageUrl?: string; // <-- Add this line
+imageUrls?: string[];
 }
 
 const data: QACardData[] = [
@@ -22,7 +21,7 @@ title: 'Multithreading',
 subItems: [
 {
 question: 'Explain Java Thread Lifecycle in depth',
-imageUrl: '/assets/ThreadLifeCycle.png',
+imageUrls: ['/assets/ThreadLifeCycle.png'],
 answerMd: `
 # Detailed Java Thread Lifecycle
 
@@ -413,7 +412,7 @@ Use:
 
 `,
   "important": true,
-  "imageUrl": "/assets/VolatileInternals.png"
+  "imageUrls": ["/assets/VolatileInternals.png"]
 },{
   "question": "Difference between wait(), sleep(), join()",
   "answerMd": `
@@ -512,7 +511,7 @@ try {
 - Use **join()** when you need to wait for another thread to finish before proceeding.  
 `,
   "important": true,
-  "imageUrl": "/assets/WaitSleepJoin.png"
+  "imageUrls": ["/assets/WaitSleepJoin.png"]
 }
 ,{
   "question": "How to resolve deadlock, starvation, livelock?",
@@ -581,7 +580,7 @@ Threads are active but repeatedly retry without making progress.
 - Starvation → enable fairness and balanced scheduling.  
 - Livelock → add backoff or signaling to guarantee forward progress.  
 `,
-  "imageUrl": "/assets/DeadlockStarvationLivelock.png"
+  "imageUrls": ["/assets/DeadlockStarvationLivelock.png"]
 },{
 question: 'What are the use cases for CompletableFuture and how do you implement them?',
 answerMd: `
@@ -764,7 +763,7 @@ pool.shutdown();
 - Consider Project Loom for simpler concurrency patterns when it becomes mainstream.
 `,
 important: true,
-imageUrl: '/assets/CompletableFututre.png',
+imageUrls: ['/assets/CompletableFututre.png'],
 },
 {
 question: 'Difference between synchronized, ReentrantLock, and ReadWriteLock',
@@ -892,7 +891,7 @@ public void writeData() {
 
 `,
 important: true,
-imageUrl: '/assets/LocksComparison.png'
+imageUrls: ['/assets/LocksComparison.png']
 },
 {
 question: 'How do you handle thread safety?',
@@ -1254,7 +1253,7 @@ subItems: [
 // To add under your desired Topic’s `subQuestions` array in src/qa-data.ts:
 {
 question: "How do you print all words that appear more than once using only basic for loops (no maps/collections)?",
-imageUrl: '/assets/flowchart_duplicate.png',
+imageUrls: ['/assets/flowchart_duplicate.png'],
 answerMd: `
 ### Explanation
 
@@ -1453,7 +1452,7 @@ cab
 },// To add under your desired Topic’s `subItems` array in src/qa-data.ts:
 {
 question: "How do you find the 2nd largest number in an array using simple loops and Java Streams?",
-imageUrl: '/assets/flowchart_2ndLargest.png',
+imageUrls: ['/assets/flowchart_2ndLargest.png'],
 answerMd: `
 
 ### Explanation
@@ -2080,7 +2079,7 @@ title: 'JVM Memory Model',
 subItems: [
    {
       question: 'Explain the JVM architectural model in depth',
-    imageUrl: '/assets/JVM.png',
+  imageUrls: ['/assets/JVM.png'],
       answerMd: `
 # Detailed JVM Architecture
 
@@ -2378,7 +2377,7 @@ Per Thread:
 ---
 `,
   "important": true,
-  "imageUrl": "/assets/JMM.png"
+  "imageUrls": ["/assets/JMM.png"]
 }
 ,{
   "question": "Explain Garbage Collection (CMS vs G1 GC)",
@@ -2502,7 +2501,7 @@ G1 is the default in modern JDKs (JDK 9+). It targets predictable pauses by coll
 In short: prefer G1 on modern JVMs for predictable pauses and better compaction on large heaps. Treat CMS as legacy; migrate if you can, and always validate with production-like GC logs before and after changes.
 `,
   "important": true,
-  "imageUrl": "/assets/GC_CMS_vs_G1.png"
+  "imageUrls": ["/assets/GC_CMS_vs_G1.png"]
 },
 {
 question: 'What are the key changes to JVM memory regions in Java 8 versus Java 7?',
@@ -5656,7 +5655,7 @@ Spring beans go through a **well-defined sequence of stages** from creation to d
 
 `,
 "important": true,
-imageUrl: '/assets/SpringBeanLifeCycle.png'
+imageUrls: ['/assets/SpringBeanLifeCycle.png']
 },
 {
 question: 'How do you add custom initialization logic to a bean?',
@@ -14572,7 +14571,7 @@ A robust payment platform must ensure low latency, fault tolerance, strong consi
 - Implement robust monitoring, security, and compliance controls.  
 `,
   "important": true,
-  "imageUrl": "/assets/PaymentSystemDesign.png"
+  "imageUrls": ["/assets/PaymentSystemDesign.png"]
 },{
   "question": "Design a low-latency stock trading API",
   "answerMd": `
@@ -14642,7 +14641,7 @@ Building a trading API for sub-millisecond order flow demands razor-sharp design
 - Employ backpressure, tracing, and real-time SLAs to guarantee performance.  
 `,
   "important": true,
-  "imageUrl": "/assets/LowLatencyTradingAPI.png"
+  "imageUrls": ["/assets/LowLatencyTradingAPI.png"]
 },{
   "question": "How to isolate a frequently failing microservice?",
   "answerMd": `
@@ -14721,7 +14720,7 @@ return Try.of(() -> remoteCall())
 - Use **fallbacks** to degrade gracefully and keep core functionality alive.
 `,
   "important": true,
-  "imageUrl": "/assets/MicroserviceIsolation.png"
+  "imageUrls": ["/assets/MicroserviceIsolation.png"]
 },{
   "question": "How to ensure backward compatibility in APIs?",
   "answerMd": `
@@ -14815,7 +14814,7 @@ Warning: 299 - "Deprecated API, use /v2/orders"
 - Implement a clear **deprecation policy** and keep clients informed.  
 `,
   "important": true,
-  "imageUrl": "/assets/BackwardCompatibility.png"
+  "imageUrls": ["/assets/BackwardCompatibility.png"]
 },{
   "question": "How to scale a Spring Boot service for 1M+ users?",
   "answerMd": `
@@ -14951,14 +14950,8 @@ resilience4j.circuitbreaker.instances.serviceA:
 - Implement tracing, metrics, and circuit breakers.  
 `,
   "important": true,
-  "imageUrl": "/assets/SpringBootScaling.png"
-}
-  ]
+  "imageUrls": ["/assets/SpringBootScaling.png"]
 },{
-category: 'systemDesign',
-title: 'Design shortUrl in Java with architectural diagram (story + implementation)',
-subItems: [
-{
 question: 'Design shortUrl in Java with architectural diagram',
 answerMd: `
 # 🚀 TinyURL in Java Story‑Driven System Design
@@ -15166,15 +15159,10 @@ return svc.resolve(alias)
 - Global low‑latency via CDN/edge 🌍
 - Observability: monitor QPS, latency, cache hit rate, errors 📡
 - URL validation & rate‑limit per client 🔒
-`
-}
-]
+`,
+imageUrls: ['/assets/shortenUrl.png']
 },{
-category: 'systemDesign',
-title: 'Event Booking System with Concurrency and Validation ',
-subItems: [
-{
-question: 'How do you implement an event booking system that prevents overbooking under concurrent requests, allows cancellations, and provides event-wise summaries using in-memory storage?',
+question: 'How do you implement an event booking system  with Concurrency and Validation that prevents overbooking under concurrent requests, allows cancellations, and provides event-wise summaries using in-memory storage?',
 answerMd: `
 # 🏟️ Event Booking System with Concurrency & Validation Story-Driven Guide
 
@@ -15378,14 +15366,8 @@ executor.shutdown();
 - Push live seat counts via WebSocket
 - Implement soft deletes and audit trails for cancellations
 `,
-imageUrl: '/assets/Event_Booking_System.png'
-},
-]
+imageUrls: ['/assets/Event_Booking_System.png']
 },{
-  category: 'systemDesign',
-  title: 'Designing a Large-Scale E-Commerce Platform (Amazon/Flipkart) ',
-  subItems: [
-    {
       question: 'How would you design Amazon.com/Flipkart?',
       answerMd: `
 # 🛒 Designing Amazon.com/Flipkart Story-Driven Guide
@@ -15577,14 +15559,9 @@ for msg in consumer:
 - Machine-learning inference at the edge for personalization.
 - Chaos engineering: inject latency, fail primary databases, verify fallback.
 - GDPR & PCI compliance: data encryption, tokenization, audit trails.
-`
-    }
-  ]
-},{
-  category: 'systemDesign',
-  title: 'Designing Generative AI Systems ',
-  subItems: [
-    {
+`,
+  imageUrls: ['/assets/AmazonDesign1.png','/assets/AmazonDesign2.png']
+    },{
       question: 'How would you design Generative AI Systems?',
       answerMd: `
 # 🤖 Generative AI System Design Story-Driven Guide
@@ -15767,7 +15744,7 @@ def retrieve(query):
 - Auto-ML pipelines: retrain models when data drift is detected.
 `
     }
-  ]
+]
 },{
   category: 'systemDesign',
   title: 'Designing a Large-Scale Video Streaming Platform (YouTube/Netflix/Prime Video) ',
@@ -18303,7 +18280,7 @@ def main(event: func.EventHubEvent, outputDocument: func.Out[func.Document]):
 `,
   important: true
 ,
-imageUrl: '/assets/Azure_Functions.png',
+imageUrls: ['/assets/Azure_Functions.png'],
 }]
 },
 ];

@@ -26,9 +26,18 @@ export default function QACard({ card }: QACardProps) {
           </ul>
         </div>
       )}
-      {card.imageUrl && (
-  <img src="/assets/Architecture_diagram.png" alt="Test" />
-)}
+      {card.imageUrls && card.imageUrls.length > 0 && (
+        <div className="qa-image-wrapper">
+          {card.imageUrls.map((img, idx) => (
+            <img
+              key={img}
+              src={process.env.PUBLIC_URL + '/assets/' + img.replace('/assets/', '')}
+              alt={`QA card ${idx + 1}`}
+              className="qa-image"
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

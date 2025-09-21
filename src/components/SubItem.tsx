@@ -11,7 +11,7 @@ interface SubItemProps {
 
 export default function SubItem({ item }: SubItemProps) {
   const [open, setOpen] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [modalOpenIdx, setModalOpenIdx] = useState<number | null>(null);
 
   return (
     <>
@@ -30,22 +30,25 @@ export default function SubItem({ item }: SubItemProps) {
       <div className={`sub-answer${open ? ' open' : ''}`}>
         {open && (
           <>
-            {item.imageUrl && (
+            {item.imageUrls && item.imageUrls.length > 0 && (
                 <div className="qa-image-wrapper">
-                   <img 
-                     src={process.env.PUBLIC_URL + '/assets/' + item.imageUrl?.replace('/assets/', '')}
-                     alt="QA related" 
-                     className="qa-image" 
-                     style={{ cursor: 'pointer' }} 
-                     onClick={() => setModalOpen(true)} 
-                   />
-                   {modalOpen && (
-                     <ImageModal
-                       src={process.env.PUBLIC_URL + '/assets/' + item.imageUrl?.replace('/assets/', '')}
-                       alt="QA related"
-                       onClose={() => setModalOpen(false)}
-                     />
-                   )}
+                  {item.imageUrls.map((img, idx) => (
+                    <img
+                      key={img}
+                      src={process.env.PUBLIC_URL + '/assets/' + img.replace('/assets/', '')}
+                      alt={`QA related ${idx + 1}`}
+                      className="qa-image"
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setModalOpenIdx(idx)}
+                    />
+                  ))}
+                  {modalOpenIdx !== null && (
+                    <ImageModal
+                      src={process.env.PUBLIC_URL + '/assets/' + item.imageUrls[modalOpenIdx].replace('/assets/', '')}
+                      alt={`QA related ${modalOpenIdx + 1}`}
+                      onClose={() => setModalOpenIdx(null)}
+                    />
+                  )}
                 </div>
             )}
             <MarkdownRenderer content={item.answerMd} />
