@@ -5898,7 +5898,8 @@ Sink connector to PostgreSQL:
 - ✅ Consume → validate offset tracking
 - ✅ Streams → inspect state store
 - ✅ Connect → confirm DB sync
-`
+`,
+imageUrls: ['/assets/KafkaArchitecture.png'],
 }
 ,{
   "question": "How do you configure a Kafka producer for safe, idempotent message delivery?",
