@@ -246,11 +246,7 @@ input:focus {
     padding: 1rem;
     border-radius: var(--radius-md);
   }
-  
-  .modal-image {
-    max-width: 90vw;
-    max-height: 70vh;
-  }
+
   
   .pagination {
     flex-direction: column;
@@ -363,15 +359,6 @@ input:focus {
 
  
 
-.modal-image {
-
-  max-width: 80vw;
-
-  max-height: 70vh;
-
-  border-radius: 8px;
-
-}
 
  
 
@@ -1256,11 +1243,14 @@ header input::placeholder {
 }
 
 .modal-image {
-  max-width: 90vw;
-  max-height: 70vh;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
-  background: #fff;
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  object-fit: contain;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
 .modal-close {

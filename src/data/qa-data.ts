@@ -246,6 +246,343 @@ CompletableFuture.supplyAsync(() -> fetch())
 `,
 important: true, // Mark as important
 },{
+  "question": "How does volatile work internally?",
+  "answerMd": `
+# ⚡ How volatile works internally in Java
+
+\`volatile\` gives visibility and ordering guarantees for a single variable without using locks. It’s a lightweight way to publish changes across threads.
+
+---
+
+## 1. What volatile guarantees
+
+### ✅ Guarantees
+- Visibility: writes by one thread are immediately visible to others.
+- Ordering: establishes a happens-before edge — a write to a volatile happens-before a subsequent read of the same volatile.
+- Atomicity: single read/write is atomic (including 64-bit long/double).
+
+### ❌ Not guaranteed
+- No mutual exclusion (no critical section protection).
+- No atomic compound actions (i++ is not atomic).
+- No group consistency across multiple variables.
+
+---
+
+## 2. Under the hood: memory barriers and cache coherence
+
+Modern CPUs reorder memory operations; \`volatile\` inserts fences so compilers/CPUs don’t reorder across volatile accesses.
+
+- On a volatile write: acts like a release
+  - Prevents prior writes from moving after the volatile write (StoreStore barrier).
+  - Forces a flush so other cores see the update (StoreLoad barrier as needed).
+- On a volatile read: acts like an acquire
+  - Prevents subsequent reads/writes from moving before the volatile read (LoadLoad/LoadStore barriers).
+- Hardware coherence (e.g., MESI) ensures other cores invalidate or update cached lines, so the new value becomes visible.
+
+Mental model:
+\`\`\`
+Thread A (writer)                    Thread B (reader)
+normal writes -> [volatile write] => [volatile read] -> normal reads
+     (release)                             (acquire)
+\`\`\`
+
+---
+
+## 3. Happens-before rules you actually use
+
+- Rule: A write to \`v\` happens-before any subsequent read of \`v\`.
+- Effect: All memory writes before the volatile write become visible to the thread that reads the same volatile afterward.
+
+Example: Safe publication with a volatile reference
+\`\`\`java
+class Config { final Map<String,String> m; Config(Map<String,String> m){ this.m = m; } }
+class Holder {
+  private volatile Config cfg;              // volatile reference
+  void publish(Config c) { this.cfg = c; }  // release
+  Config read() { return cfg; }             // acquire
+}
+\`\`\`
+If a thread sets up the map, then assigns \`cfg\`, a later \`read()\` will see both the pointer and the fully initialized contents.
+
+---
+
+## 4. Correct usage patterns
+
+### A) Status flags / stop signals
+\`\`\`java
+class Worker implements Runnable {
+  private volatile boolean running = true;
+  public void stop() { running = false; }
+  public void run() {
+    while (running) {
+      // do small unit of work
+    }
+  }
+}
+\`\`\`
+
+### B) Double-checked locking (DCL) for lazy init
+\`\`\`java
+class Singleton {
+  private static volatile Singleton INSTANCE;  // volatile is essential for DCL
+  static Singleton get() {
+    if (INSTANCE == null) {
+      synchronized (Singleton.class) {
+        if (INSTANCE == null) {
+          INSTANCE = new Singleton(); // publish safely
+        }
+      }
+    }
+    return INSTANCE;
+  }
+}
+\`\`\`
+
+### C) One-writer, many-readers config refresh
+\`\`\`java
+class Router {
+  private volatile RouteTable table = RouteTable.load();
+  void refresh() { table = RouteTable.load(); }   // writer thread
+  Route next(String k) { return table.find(k); }  // many readers
+}
+\`\`\`
+
+---
+
+## 5. What volatile does not fix (and the right tools)
+
+- Compound state updates
+\`\`\`java
+volatile int x;
+// Not atomic: read-modify-write race
+x = x + 1; // Wrong under contention
+\`\`\`
+Use:
+- Atomic classes: \`AtomicInteger\`, \`AtomicReference\`, \`LongAdder\`
+- Locks: \`synchronized\`, \`ReentrantLock\`
+- VarHandle atomics: \`getAndAdd\`, \`compareAndSet\`
+
+- Multi-variable invariants (e.g., x and y must change together)
+  - Use locks or higher-level concurrency controls.
+- Volatile arrays
+  - \`volatile Foo[] arr\` makes the reference volatile, not the elements. Use atomics per element or locks.
+
+---
+
+## 6. Performance and pitfalls
+
+- Fast read-mostly signals, but:
+  - Busy-waiting on volatile spins CPU; prefer \`LockSupport.parkNanos\`, conditions, or blocking queues.
+  - False sharing: place hot volatiles on separate cache lines (e.g., padding) to avoid cache thrash.
+  - Heavy write contention: coherence traffic can degrade throughput—consider striped atomics or queues.
+- Long/double
+  - \`volatile long/double\` read/writes are atomic. Non-volatile 64-bit atomicity is JVM-dependent historically; modern HotSpot makes them atomic but still not safely published without volatile or happens-before.
+- GC and volatile
+  - Volatile object references ensure proper visibility of published graphs; they don’t pin objects or affect reachability beyond normal references.
+
+---
+
+## 7. Modern alternatives and complements
+
+- VarHandle (JDK 9+): fine-grained memory orders
+  - \`getAcquire\`, \`setRelease\`, \`getOpaque\`, \`getAndSet\`, \`compareAndSet\`
+- Fences:
+  - \`VarHandle.fullFence()\`, \`StoreLoadFence\` equivalents for advanced use cases
+- High-level frameworks:
+  - Executors, \`ConcurrentHashMap\`, \`CompletableFuture\`, queues—prefer these over hand-rolled volatile protocols.
+
+---
+
+## ⚖️ Quick reference table
+
+| Aspect                | Volatile                      | Locks (synchronized/ReentrantLock)      | Atomics (AtomicInteger, etc.)          |
+|----------------------|-------------------------------|-----------------------------------------|----------------------------------------|
+| Visibility ordering  | Yes (acquire/release)         | Yes (monitor enter/exit)                | Yes (per-operation fences)             |
+| Mutual exclusion     | No                            | Yes                                     | No                                     |
+| Compound atomics     | No                            | Yes (inside critical section)           | Yes (per provided operations)          |
+| Contention behavior  | Coherence traffic             | Blocking/parking                        | CAS retries, backoff                    |
+| Typical use          | Flags, publication, configs   | Critical sections, invariants           | Counters, accumulators, CAS protocols  |
+
+---
+
+### 🎯 Summary
+
+- Use \`volatile\` for visibility and ordering of single variables, especially flags and published references.
+- It does not replace locks for compound updates or invariants.
+- Think “acquire/release”: a volatile write publishes, a volatile read observes—all prior writes become visible after the read.
+
+`,
+  "important": true,
+  "imageUrl": "/assets/VolatileInternals.png"
+},{
+  "question": "Difference between wait(), sleep(), join()",
+  "answerMd": `
+# 🕒 Difference between wait(), sleep(), and join()
+
+Java provides several ways to pause thread execution. Each method has its own semantics around locks, interruption, and coordination.
+
+---
+
+## 1. wait() (Object method)
+
+### ✅ Characteristics
+- Must be called from within a synchronized block on the same object.  
+- Releases the object’s monitor (lock) while waiting.  
+- Resumes when another thread calls notify()/notifyAll() on that object.  
+- Throws IllegalMonitorStateException if not holding the lock and InterruptedException if interrupted.
+
+### 🔧 Example
+\`\`\`java
+synchronized (lock) {
+    while (!condition) {
+        lock.wait();   // releases lock and waits
+    }
+    // proceed when notified
+}
+\`\`\`
+
+### 📊 Use Case
+- Coordinating producer–consumer or other thread handoff scenarios.
+
+---
+
+## 2. sleep() (Thread method)
+
+### ✅ Characteristics
+- Static method on Thread class.  
+- Pauses the current thread for a specified duration.  
+- Does not release any locks or monitors held by the thread.  
+- Throws InterruptedException if the thread is interrupted during sleep.
+
+### 🔧 Example
+\`\`\`java
+try {
+    Thread.sleep(1000); // pause for 1 second
+} catch (InterruptedException e) {
+    Thread.currentThread().interrupt();
+}
+\`\`\`
+
+### 📊 Use Case
+- Introducing delays, simulating work, or polling at intervals.
+
+---
+
+## 3. join() (Thread method)
+
+### ✅ Characteristics
+- Called on a Thread instance.  
+- Causes the calling thread to wait until the target thread terminates or timeout elapses.  
+- Does not require synchronization on the target thread.  
+- Throws InterruptedException if interrupted while waiting.
+
+### 🔧 Example
+\`\`\`java
+Thread t = new Thread(task);
+t.start();
+try {
+    t.join(); // wait until t finishes
+} catch (InterruptedException e) {
+    Thread.currentThread().interrupt();
+}
+\`\`\`
+
+### 📊 Use Case
+- Ensuring one thread completes before another proceeds (e.g., main thread waiting for worker threads).
+
+---
+
+## ⚖️ Quick Comparison Table
+
+| Feature                     | wait()                        | sleep()                 | join()                          |
+|-----------------------------|-------------------------------|-------------------------|---------------------------------|
+| Belongs to                  | Object                        | Thread                  | Thread                          |
+| Requires synchronization    | Yes                           | No                      | No                              |
+| Releases lock               | Yes                           | No                      | No                              |
+| Resume triggered by         | notify()/notifyAll()          | Timeout or interruption | Thread termination or timeout   |
+| Common exceptions           | IllegalMonitorStateException; InterruptedException | InterruptedException     | InterruptedException           |
+| Typical usage               | Thread coordination           | Time-based delays       | Waiting for thread completion   |
+
+---
+
+### 🎯 Summary
+
+- Use **wait()** for coordinated waiting and lock release in synchronized blocks.  
+- Use **sleep()** for simple, time-based pauses without releasing locks.  
+- Use **join()** when you need to wait for another thread to finish before proceeding.  
+`,
+  "important": true,
+  "imageUrl": "/assets/WaitSleepJoin.png"
+}
+,{
+  "question": "How to resolve deadlock, starvation, livelock?",
+  "answerMd": `
+# 🛠 Resolving Deadlock, Starvation, and Livelock
+
+Concurrency pitfalls in Java often manifest as deadlock, starvation, or livelock. Here’s a concise guide to prevent and fix each.
+
+---
+
+## 1. Deadlock
+
+Threads wait on each other’s locks in a cycle.
+
+### 💡 Prevention & Resolution
+- Acquire multiple locks in a consistent global order.
+- Use \`tryLock(timeout)\` to break cycles:
+  \`\`\`java
+  if (lockA.tryLock(100, TimeUnit.MILLISECONDS)) {
+    try {
+      if (lockB.tryLock(100, TimeUnit.MILLISECONDS)) {
+        try { /* critical work */ }
+        finally { lockB.unlock(); }
+      }
+    } finally {
+      lockA.unlock();
+    }
+  }
+  \`\`\`
+- Keep lock scopes small; avoid nested locks.
+- Monitor thread dumps to detect cycles.
+
+---
+
+## 2. Starvation
+
+A thread never gets CPU time or lock access.
+
+### 💡 Prevention & Resolution
+- Use fair locks (e.g., \`new ReentrantLock(true)\`).
+- Avoid priority-based scheduling for critical locks.
+- Leverage Executors with bounded queues to ensure work progresses.
+
+---
+
+## 3. Livelock
+
+Threads are active but repeatedly retry without making progress.
+
+### 💡 Prevention & Resolution
+- Introduce random backoff or delays:
+  \`\`\`java
+  while (!taskDone) {
+    if (tryDoWork()) break;
+    Thread.sleep(randomMillis());
+  }
+  \`\`\`
+- Use proper signaling (\`Condition\`, \`SynchronousQueue\`) instead of tight loops.
+- Break symmetry by having one thread take a fallback action.
+
+---
+
+### 🎯 Summary
+
+- Deadlock → enforce lock ordering or use \`tryLock(timeout)\`.  
+- Starvation → enable fairness and balanced scheduling.  
+- Livelock → add backoff or signaling to guarantee forward progress.  
+`,
+  "imageUrl": "/assets/DeadlockStarvationLivelock.png"
+},{
 question: 'What are the use cases for CompletableFuture and how do you implement them?',
 answerMd: `
 # 🌀 Use Cases of CompletableFuture & Implementation
@@ -427,12 +764,135 @@ pool.shutdown();
 - Consider Project Loom for simpler concurrency patterns when it becomes mainstream.
 `,
 important: true,
+imageUrl: '/assets/CompletableFututre.png',
 },
 {
-question: 'What’s new in CompletableFuture?',
+question: 'Difference between synchronized, ReentrantLock, and ReadWriteLock',
 answerMd: `
-CompletableFuture in Java 8+ supports building async pipelines: \`thenApplyAsync\`, \`thenCombine\`, \`exceptionally\`, \`allOf\`/ \`anyOf\`, etc.
-`
+# 🔒 Difference between synchronized, ReentrantLock, and ReadWriteLock
+
+Java provides multiple concurrency control mechanisms. Each has its own strengths, limitations, and use cases. Let’s break them down with scenarios, diagrams, and code.
+
+---
+
+## 1. synchronized (Keyword)
+
+The simplest way to achieve mutual exclusion.
+
+### ✅ Characteristics
+- Implicit lock on an object or class.
+- Automatically released when the block/method exits.
+- No explicit lock/unlock required.
+- Fairness and advanced features not supported.
+
+### 🔧 Example
+\`\`\`java
+public synchronized void increment() {
+    count++;
+}
+\`\`\`
+
+### 📊 Use Case
+- Best for simple critical sections.
+- When you don’t need advanced features like timed lock, fairness, or multiple conditions.
+
+---
+
+## 2. ReentrantLock (Class)
+
+A more flexible, explicit locking mechanism introduced in JDK 5.
+
+### ✅ Characteristics
+- Explicit lock/unlock required.
+- Supports fairness policy (first-come-first-serve).
+- Provides tryLock() with timeout.
+- Supports multiple Condition objects for fine-grained signaling.
+- Must be released in a finally block to avoid deadlocks.
+
+### 🔧 Example
+\`\`\`java
+ReentrantLock lock = new ReentrantLock();
+
+public void increment() {
+    lock.lock();
+    try {
+        count++;
+    } finally {
+        lock.unlock();
+    }
+}
+\`\`\`
+
+### 📊 Use Case
+- When you need advanced control (timeouts, fairness).
+- When multiple condition variables are required.
+- For complex concurrent utilities.
+
+---
+
+## 3. ReadWriteLock (Interface, with ReentrantReadWriteLock implementation)
+
+Allows multiple readers or one writer at a time.
+
+### ✅ Characteristics
+- Two locks: one for read, one for write.
+- Multiple threads can read simultaneously if no writer holds the lock.
+- Only one writer allowed, and it blocks readers.
+- Improves performance in read-heavy scenarios.
+
+### 🔧 Example
+\`\`\`java
+ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+Lock readLock = rwLock.readLock();
+Lock writeLock = rwLock.writeLock();
+
+public void readData() {
+    readLock.lock();
+    try {
+        // read operation
+    } finally {
+        readLock.unlock();
+    }
+}
+
+public void writeData() {
+    writeLock.lock();
+    try {
+        // write operation
+    } finally {
+        writeLock.unlock();
+    }
+}
+\`\`\`
+
+### 📊 Use Case
+- Ideal for read-heavy workloads.
+- Databases, caches, or in-memory data structures where reads dominate writes.
+
+---
+
+## ⚖️ Quick Comparison Table
+
+| Feature              | synchronized                  | ReentrantLock                        | ReadWriteLock                          |
+|----------------------|--------------------------------|--------------------------------------|----------------------------------------|
+| Simplicity           | Very simple                   | Moderate (explicit lock/unlock)       | Moderate (two locks: read & write)     |
+| Fairness             | Not supported                 | Supported (optional)                  | Supported (via ReentrantReadWriteLock) |
+| Try with timeout     | ❌                            | ✅                                    | ✅ (via writeLock/readLock)            |
+| Multiple conditions  | ❌                            | ✅                                    | ✅ (per lock type)                     |
+| Read concurrency     | ❌ (exclusive only)            | ❌ (exclusive only)                   | ✅ (multiple readers, one writer)      |
+| Best suited for      | Simple critical sections       | Complex concurrency with fine control | Read-heavy systems                     |
+
+---
+
+### 🎯 Summary
+
+- Use **synchronized** for simple, lightweight locking.
+- Use **ReentrantLock** when you need advanced features like fairness, tryLock, or multiple conditions.
+- Use **ReadWriteLock** when reads dominate writes and you want better concurrency.
+
+`,
+important: true,
+imageUrl: '/assets/LocksComparison.png'
 },
 {
 question: 'How do you handle thread safety?',
@@ -1756,7 +2216,294 @@ subItems: [
          (Threads, Memory, CPU Cores)
 \`\`\`
 `
-    },
+    },{
+  "question": "Explain Java memory model (Heap, Stack, Metaspace)",
+  "answerMd": `
+# 🧠 Java memory model (Heap, Stack, Metaspace)
+
+Understanding where data lives in the JVM helps you reason about performance, memory leaks, and errors. Here’s a clear breakdown with diagrams, examples, and tuning tips.
+
+---
+
+## 1. Heap
+
+Shared, garbage‑collected region where objects live.
+
+### ✅ Characteristics
+- Stores objects created with \`new\` and their referenced graphs.
+- Shared by all threads; managed by the Garbage Collector (GC).
+- Typically split into generations: Young (Eden + Survivor) and Old (Tenured).
+- Subject to GC pauses; pressure increases with allocation rate and object retention.
+
+### 🔧 Example (objects on heap)
+\`\`\`java
+class User { String name; int age; } // class metadata -> Metaspace
+User u = new User();                 // object -> Heap
+List<User> users = new ArrayList<>();// container -> Heap
+\`\`\`
+
+### 🧭 Notes
+- Escape analysis may stack‑allocate or eliminate some short‑lived objects at JIT time, but conceptually they reside on the heap.
+- Large objects can promote directly to Old Gen depending on GC and size thresholds.
+
+### ⚠️ Common issues
+- OutOfMemoryError: Java heap space
+- Frequent GC pauses due to high allocation or retention
+- Memory leaks via long‑lived references (caches, static maps, listeners)
+
+### 🔩 Tuning
+- \`-Xms\`, \`-Xmx\` set initial and max heap
+- GC selection and options: e.g., \`-XX:+UseG1GC\`, \`-XX:MaxGCPauseMillis=\`
+
+---
+
+## 2. Stack
+
+Per‑thread memory for method execution frames.
+
+### ✅ Characteristics
+- One stack per thread; not shared.
+- Each frame holds: local variables, operand stack, and return address.
+- Very fast allocation (push/pop of frames); cleared on method return.
+- Holds primitives and references to heap objects (not the objects themselves).
+
+### 🔧 Example (stack frames)
+\`\`\`java
+int sum(int a, int b) {          // a, b, and local 's' live in the current stack frame
+  int s = a + b;
+  return s;
+}
+
+void call() {
+  int r = sum(2, 3);             // 'r' is on stack; 'sum' frame is pushed then popped
+}
+\`\`\`
+
+### 🧭 Notes
+- Recursion depth directly increases stack usage.
+- Stack does not store object contents (only references to heap objects).
+
+### ⚠️ Common issues
+- StackOverflowError (deep recursion, large frames)
+- OutOfMemoryError: unable to create new native thread (too many threads)
+
+### 🔩 Tuning
+- \`-Xss\` per‑thread stack size (balance recursion needs vs thread count)
+
+---
+
+## 3. Metaspace
+
+Native memory area for class metadata and related structures.
+
+### ✅ Characteristics
+- Stores class metadata (methods, fields, constant pool), classloader structures, and bytecode metadata.
+- Replaced PermGen since Java 8; grows in native memory up to limits.
+- Class unloading happens when corresponding classloaders become unreachable and at specific GC phases.
+
+### 🔧 Example (class metadata)
+\`\`\`java
+// The 'class' structure (methods, field descriptors) -> Metaspace
+class Order { int id; BigDecimal total; }
+// Instances of Order -> Heap
+Order o = new Order();
+\`\`\`
+
+### 🧭 Notes
+- Heavy dynamic class generation (framework proxies, bytecode tools) increases Metaspace usage.
+- Leaks can occur if custom classloaders are retained (e.g., app servers, plugin systems).
+
+### ⚠️ Common issues
+- OutOfMemoryError: Metaspace (runaway class generation or classloader leaks)
+
+### 🔩 Tuning
+- \`-XX:MaxMetaspaceSize=\` to cap growth
+- \`-XX:MetaspaceSize=\` initial threshold for GC of class metadata
+
+---
+
+## 🗺️ Visual map (conceptual)
+
+\`\`\`
+            [Process Native Memory]
+                   |
+        +----------+--------------+
+        |                         |
+     [Metaspace]             [Other natives]
+   (class metadata)       (JIT, threads, buffers)
+
+        +-------------------------------------+
+        |               Heap                  |
+        |  Young Gen        |    Old Gen      |
+        |  Eden + Survivor  |  Tenured objs   |
+        +-------------------------------------+
+                ^       ^             ^
+                |       |             |
+           refs from stack frames and other objects
+
+Per Thread:
+[Stack] -> frames: locals, operand stack, refs -> point to heap objects
+\`\`\`
+
+---
+
+## 🧩 Object layout primer (HotSpot)
+
+- Header: mark word (hash, lock state, GC age), class pointer
+- Instance fields: laid out with alignment/padding
+- Arrays: include length + elements
+- Synchronization: monitor state lives in header/aux structures
+
+---
+
+## ⚖️ Quick comparison table
+
+| Aspect            | Heap                              | Stack                              | Metaspace                               |
+|------------------|-----------------------------------|------------------------------------|-----------------------------------------|
+| Scope            | Shared across all threads         | One per thread                     | Shared across JVM                       |
+| Stores           | Objects, arrays                    | Primitives, refs, frames           | Class metadata, classloaders            |
+| Lifetime         | Until GC collects                  | Until method returns/thread ends   | Until classloader is collectible        |
+| Managed by       | GC                                 | JVM thread execution               | JVM + GC (class unloading)              |
+| Errors           | OOME: Java heap space              | StackOverflowError                 | OOME: Metaspace                         |
+| Tuning           | -Xms, -Xmx, GC flags               | -Xss                               | -XX:MaxMetaspaceSize, -XX:MetaspaceSize |
+
+---
+
+### 🎯 Summary
+
+- Heap: where objects live; watch allocation/retention and choose GC wisely.
+- Stack: per-thread call state; fast but limited—beware deep recursion and huge frames.
+- Metaspace: class metadata in native memory; control with MaxMetaspaceSize and avoid classloader leaks.
+
+---
+`,
+  "important": true,
+  "imageUrl": "/assets/JMM.png"
+}
+,{
+  "question": "Explain Garbage Collection (CMS vs G1 GC)",
+  "answerMd": `
+# ♻️ Garbage collection in HotSpot: CMS vs G1 GC
+
+Garbage collectors differ in how they balance pause times, throughput, and memory footprint. Here’s a clear, practical comparison of CMS and G1 GC with diagrams, flags, and when-to-use guidance.
+
+---
+
+## 1. Overview
+
+- **Goal:** Minimize stop-the-world (STW) pauses while reclaiming memory safely.
+- **Heap layout:** Generational (Young + Old); G1 further splits heap into equal-sized regions.
+- **Key trade-offs:** Pause time predictability, CPU overhead, heap fragmentation, and ease of tuning.
+
+---
+
+## 2. CMS (Concurrent Mark-Sweep)
+
+CMS focuses on low pauses by doing most work concurrently with application threads. It is deprecated/removed in newer JDKs (use G1 instead).
+
+- **How it works:**
+  - **Phases:** Initial Mark (STW) → Concurrent Mark → Remark (STW) → Concurrent Sweep.
+  - **Collection scope:** Mostly Old Generation; Young typically collected by ParNew or Parallel Scavenge.
+  - **Compaction:** No compaction in Old Gen (can fragment).
+- **Strengths:**
+  - **Low pauses:** Good for latency-sensitive apps with stable Old Gen occupancy.
+  - **Concurrent sweep:** Reduces long Old Gen STW pauses.
+- **Weaknesses:**
+  - **Fragmentation:** No compaction can lead to allocation failures (promotion failures).
+  - **CPU overhead:** More background threads; remark pauses can still be noticeable.
+  - **End of life:** Deprecated; not available on recent JDKs.
+- **Useful flags (legacy):**
+  - \`-XX:+UseConcMarkSweepGC\`
+  - \`-XX:+CMSClassUnloadingEnabled\`
+  - \`-XX:CMSInitiatingOccupancyFraction=70 -XX:+UseCMSInitiatingOccupancyOnly\`
+
+---
+
+## 3. G1 GC (Garbage-First)
+
+G1 is the default in modern JDKs (JDK 9+). It targets predictable pauses by collecting “garbage-first” regions and performing incremental compaction.
+
+- **How it works:**
+  - **Regions:** Heap split into equal-sized regions (Young, Old, Humongous).
+  - **Mark-copy/compact:** Evacuates live objects to new regions, compacting incrementally.
+  - **Pause targeting:** Meets a pause goal by selecting the best regions to collect each cycle.
+- **Strengths:**
+  - **Predictable pauses:** Configurable target via \`-XX:MaxGCPauseMillis=\`.
+  - **Compaction:** Less fragmentation over time; fewer promotion failures.
+  - **Scales:** Performs well on large heaps (multi-GB) with mixed workloads.
+- **Weaknesses:**
+  - **Overhead:** Some throughput cost vs simple parallel collectors.
+  - **Tuning nuance:** Humongous objects and region sizing may need attention.
+- **Useful flags:**
+  - \`-XX:+UseG1GC\`
+  - \`-XX:MaxGCPauseMillis=200\` (tune per SLO)
+  - \`-XX:InitiatingHeapOccupancyPercent=45\`
+  - \`-XX:G1HeapRegionSize=8m\` (auto by default)
+  - \`-Xlog:gc*:tags,level\` (JDK 9+) or \`-XX:+PrintGCDetails\` (JDK 8)
+
+---
+
+## 4. Visual mental model
+
+- **CMS phases:**
+\`\`\`
+[Young Minor GCs]  (copy in Young)
+       |
+[CMS Initial Mark]*  --> [Concurrent Mark] --> [Remark]* --> [Concurrent Sweep]
+                        (mutators run)                       (no compaction)
+* = stop-the-world
+\`\`\`
+
+- **G1 region-based cycle:**
+\`\`\`
+[Heap split into regions]
+[Young Evacuation]*  ->  [Concurrent Mark]  ->  [Mixed Collections]* (Young + Old regions)
+(compact via copies)       (find live)          (pick garbage-first regions to hit pause goal)
+* = stop-the-world, short and budgeted
+\`\`\`
+
+---
+
+## 5. Quick comparison table
+
+| Aspect                 | CMS (Conc Mark-Sweep)                   | G1 GC (Garbage-First)                          |
+|------------------------|-----------------------------------------|-----------------------------------------------|
+| Default status         | Legacy/deprecated in modern JDKs        | Default in JDK 9+                              |
+| Heap layout            | Generational                            | Region-based + generational                    |
+| Old Gen compaction     | No (sweep only, can fragment)           | Yes (incremental evacuation/compaction)        |
+| Pause goal             | Low pauses, not strictly targeted       | Tunable pause targets (e.g., 200 ms)           |
+| Large heap behavior    | Can struggle with fragmentation         | Designed for multi-GB heaps                    |
+| Failure modes          | Promotion/alloc failures, fragmentation | Humongous regions, pause target misses         |
+| Tuning complexity      | Medium; occupancy thresholds             | Medium; pause targets and region interplay     |
+
+---
+
+## 6. Practical guidance
+
+- **When to choose G1 (most cases):**
+  - **Latency SLOs:** Need predictable, bounded pauses.
+  - **Large heaps:** Multi-GB workloads; mixed read/write patterns.
+  - **Modern JDKs:** G1 is actively optimized and the sensible default.
+- **When CMS made sense (historically):**
+  - **Legacy JDK 8 stacks:** Apps engineered around CMS behavior and tuned heavily.
+  - **Low fragmentation risk:** Stable object lifetimes, minimal humongous allocations.
+- **Tuning tips:**
+  - **Right-size the heap:** \`-Xms\` = \`-Xmx\` for stable GC ergonomics under steady loads.
+  - **Set pause goal:** Start with \`-XX:MaxGCPauseMillis=200\`, measure, then tighten or relax.
+  - **Watch humongous objects (G1):** Break large arrays/byte buffers if possible; off-heap for very large blobs.
+  - **Measure, don’t guess:** Enable GC logs and analyze with tools (GCViewer, JDK Mission Control).
+- **Common pitfalls:**
+  - **Unbounded caches:** Retained refs cause Old Gen pressure—add size/TTL or weak/soft refs where appropriate.
+  - **Too many threads:** GC thread contention on small heaps—let ergonomics choose, or cap carefully.
+  - **Chasing zero pauses:** Unrealistic; aim for “short enough” pauses that meet SLOs.
+
+---
+
+In short: prefer G1 on modern JVMs for predictable pauses and better compaction on large heaps. Treat CMS as legacy; migrate if you can, and always validate with production-like GC logs before and after changes.
+`,
+  "important": true,
+  "imageUrl": "/assets/GC_CMS_vs_G1.png"
+},
 {
 question: 'What are the key changes to JVM memory regions in Java 8 versus Java 7?',
 answerMd: `
@@ -4908,7 +5655,8 @@ Spring beans go through a **well-defined sequence of stages** from creation to d
 - Graceful Shutdown — Release or persist resources in destroy callbacks.
 
 `,
-"important": true
+"important": true,
+imageUrl: '/assets/SpringBeanLifeCycle.png'
 },
 {
 question: 'How do you add custom initialization logic to a bean?',
@@ -13735,6 +14483,476 @@ Load Balancer ──▶ App Servers ──▶ Cache ──▶ Database
 - Chaos engineering to test resilience.
 `
     }
+  ]
+},{
+  category: 'systemDesign',
+  title: 'System Design Questions and Answers',
+  subItems: [
+    {
+  "question": "Design a high-availability payment system",
+  "answerMd": `
+# ⚙️ High-Availability Payment System Design
+
+A robust payment platform must ensure low latency, fault tolerance, strong consistency, and security. Let’s break down core requirements, architecture, and patterns.
+
+---
+
+## 1. Core requirements
+
+- **Availability:** 24/7 uptime across failures and traffic spikes.  
+- **Consistency:** Accurate debits/credits; prevent double-spend.  
+- **Scalability:** Auto-scale for peak loads.  
+- **Reliability:** Guaranteed message delivery; retry and idempotency.  
+- **Security & Compliance:** PCI DSS, TLS encryption, audit logs.
+
+---
+
+## 2. High-level architecture
+
+1. **API Gateway / LB**  
+   - Distributes incoming requests across regional clusters.  
+   - Performs TLS termination and basic auth/rate-limit.
+
+2. **Front-End Services**  
+   - Stateless microservices for authorization, capture, refunds.  
+   - Expose REST/gRPC; integrate circuit breakers and bulkheads.
+
+3. **Message Bus**  
+   - Kafka/RabbitMQ with at-least-once delivery.  
+   - Decouple front-end from downstream settlement and notifications.
+
+4. **Core Ledger DB**  
+   - Leaderless replicated store (Cassandra, CockroachDB) for strong consistency.  
+   - Transactions via lightweight consensus or 2PC where necessary.
+
+5. **Settlement & Clearing**  
+   - Batch jobs or streaming consumers handle settlement with banks.  
+   - Retry on failure; reconcile differences.
+
+6. **Idempotency & Deduplication**  
+   - Unique transaction IDs; dedupe at API and consumer layers.  
+   - Prevents double charges on retries.
+
+7. **Monitoring & Alerting**  
+   - Health checks, SLIs/SLOs, distributed tracing.  
+   - Alert on error rates, lag, and latency spikes.
+
+---
+
+## 3. Key patterns
+
+- **Retry with Backoff & Dead-Letter Queues**  
+- **Circuit Breaker & Bulkhead** to isolate failures  
+- **Leaderless Replication** for no single point of write failure  
+- **Blue-Green / Canary Deployments** for zero-downtime upgrades  
+- **Tokenization** of sensitive payment data
+
+---
+
+## 4. Quick comparison table
+
+| Aspect                  | Approach                                               |
+|------------------------|--------------------------------------------------------|
+| API layer              | Load balancer + rate limiting + TLS termination        |
+| Data consistency       | Leaderless replication; lightweight transactions (2PC) |
+| Message delivery       | Kafka/RabbitMQ; at-least-once with DLQ                 |
+| Failure isolation      | Circuit breakers; bulkheads                            |
+| Idempotency            | Unique txn IDs; dedupe storage                         |
+| Scaling                | Autoscaling groups; stateless services                 |
+| Security               | PCI DSS, tokenization, audit logging                   |
+
+---
+
+### 🎯 Summary
+
+- Use a multi-zone, stateless microservice architecture behind an API gateway.  
+- Decouple with a durable message bus for reliability and retries.  
+- Store ledger entries in a strongly consistent, replicated database.  
+- Enforce idempotency, circuit breakers, and bulkheads.  
+- Implement robust monitoring, security, and compliance controls.  
+`,
+  "important": true,
+  "imageUrl": "/assets/PaymentSystemDesign.png"
+},{
+  "question": "Design a low-latency stock trading API",
+  "answerMd": `
+# 🚀 Low-Latency Stock Trading API Design
+
+Building a trading API for sub-millisecond order flow demands razor-sharp design around throughput, determinism, and real-time data.
+
+---
+
+## 1. Core requirements
+- Latency: ≤1 ms end-to-end  
+- Throughput: 100k+ orders/sec  
+- Deterministic matching: consistent order book state  
+- Fault tolerance: no single point of failure  
+- Security: FIX/TLS, token auth, audit trails  
+
+---
+
+## 2. High-Level Architecture
+1. Edge Gateway  
+   • Binary TCP/UDP listener; SSL offload; token auth  
+2. Market Data Ingestion  
+   • Multicast/unicast feed handler; normalize snapshot & delta  
+3. Order Ingress Service  
+   • FIX or proprietary binary; syntactic & semantic validation  
+4. Matching Engine  
+   • In-memory, lock-free ring buffers; price-time priority  
+5. Risk & Compliance  
+   • Inline fast-path checks; async slow-path offload  
+6. Persistence & Replay Log  
+   • Append-only ledger (AOF/SSTable); crash-safe  
+7. Execution Notifications  
+   • UDP/TCP callbacks or push stream for fills & cancels  
+8. Monitoring & Backpressure  
+   • p99 latency histograms; circuit breakers; flow control  
+
+---
+
+## 3. Key Patterns
+- Lock-free structures (LMAX Disruptor)  
+- Pre-allocate objects; zero GC pauses (off-heap)  
+- Batch I/O & vectorized processing  
+- Sticky sessions (minimize cache misses)  
+- Binary serialization (SBE, FlatBuffers)  
+- Sharding by instrument or client  
+
+---
+
+## 4. Quick Comparison Table
+
+| Aspect             | Approach                                      |
+|--------------------|-----------------------------------------------|
+| Protocol           | Binary TCP/UDP; FIX over TCP                  |
+| Data structures    | Ring buffer; lock-free order book             |
+| Serialization      | SBE / FlatBuffers / custom binary             |
+| Risk checks        | Fast inline + async slow-path                 |
+| Persistence        | Append-only log; replayable SSTables          |
+| Scaling            | Shard by symbol/client; sticky connections    |
+| Monitoring         | Prometheus; Grafana; p99 latency              |
+
+---
+
+### 🎯 Summary
+- Use a lock-free, in-memory matching engine with ring buffers.  
+- Normalize market data via binary feeds; minimize parsing.  
+- Offload non-critical work asynchronously.  
+- Employ backpressure, tracing, and real-time SLAs to guarantee performance.  
+`,
+  "important": true,
+  "imageUrl": "/assets/LowLatencyTradingAPI.png"
+},{
+  "question": "How to isolate a frequently failing microservice?",
+  "answerMd": `
+# 🛡️ Isolating a Frequently Failing Microservice
+
+When one service keeps failing, isolation prevents cascading outages and preserves overall system health.
+
+---
+
+## 1. Circuit Breaker
+
+### ✅ Characteristics
+- Monitors failure rate and opens on thresholds  
+- Blocks calls to the failing service until it recovers  
+- Automatically resets after a cooldown period  
+
+### 🔧 Example
+\`\`\`java
+CircuitBreaker cb = CircuitBreaker.ofDefaults("svcBreaker");
+Supplier<String> decorated = cb.decorateSupplier(() -> failingService.call());
+Try.ofSupplier(decorated)
+   .onFailure(e -> handleFallback())
+   .onSuccess(v -> process(v));
+\`\`\`
+
+---
+
+## 2. Bulkhead Isolation
+
+### ✅ Characteristics
+- Splits resources into isolated pools (threads, connections)  
+- Limits concurrency per service to protect shared resources  
+- Prevents a hot service from exhausting system capacity  
+
+### 🔧 Example
+\`\`\`yaml
+resilience4j.bulkhead:
+  instances:
+    orderServicePool:
+      maxConcurrentCalls: 20
+      maxWaitDuration: 50ms
+\`\`\`
+
+---
+
+## 3. Fallback & Graceful Degradation
+
+### ✅ Characteristics
+- Provides default responses or stub behavior on failure  
+- Offloads noncritical work asynchronously  
+- Ensures user-facing features remain functional  
+
+### 🔧 Example
+\`\`\`java
+return Try.of(() -> remoteCall())
+  .recover(TimeoutException.class, () -> defaultResponse())
+  .get();
+\`\`\`
+
+---
+
+## ⚖️ Quick Comparison Table
+
+| Pattern               | Purpose                                | Key Benefit               |
+|-----------------------|----------------------------------------|---------------------------|
+| Circuit Breaker       | Stop repeated calls to failing service | Reduce error propagation  |
+| Bulkhead Isolation    | Limit concurrent usage                 | Protect shared resources  |
+| Fallback              | Provide alternative behavior           | Maintain user experience  |
+
+---
+
+### 🎯 Summary
+
+- Use **circuit breakers** to stop floods of failures.
+- Use **bulkheads** to confine resource consumption.
+- Use **fallbacks** to degrade gracefully and keep core functionality alive.
+`,
+  "important": true,
+  "imageUrl": "/assets/MicroserviceIsolation.png"
+},{
+  "question": "How to ensure backward compatibility in APIs?",
+  "answerMd": `
+# 🔄 Ensuring Backward Compatibility in APIs
+
+Maintaining compatibility means clients keep working when you evolve your API. Focus on non-breaking changes, versioning, contracts, and clear deprecation paths.
+
+---
+
+## 1. Non-breaking Changes
+
+### ✅ Characteristics
+- Add new endpoints or resources without altering existing ones  
+- Introduce optional fields with sensible defaults  
+- Avoid removing or renaming existing fields and parameters  
+
+### 🔧 Example
+\`\`\`json
+// Old response
+{ "id": 42, "name": "Alice" }
+
+// New response with optional field
+{ "id": 42, "name": "Alice", "email": "alice@example.com" }
+\`\`\`
+
+---
+
+## 2. Versioning
+
+### ✅ Characteristics
+- URI Versioning: /v1/orders → /v2/orders  
+- Header Versioning: Accept: application/vnd.myapi.v2+json  
+- Query Param: ?version=2  
+
+### 🔧 Example
+\`\`\`http
+GET /api/v2/users HTTP/1.1
+Accept: application/json
+\`\`\`
+
+---
+
+## 3. Consumer-Driven Contracts
+
+### ✅ Characteristics
+- Define expectations in contract files (e.g., Pact)  
+- Run provider tests against consumer contracts  
+- Detect breaking changes before deployment  
+
+---
+
+## 4. Deprecation Policy
+
+### ✅ Characteristics
+- Mark endpoints/fields as deprecated in docs and responses  
+- Return deprecation headers (Warning or Deprecation)  
+- Provide timelines and migration guides  
+
+### 🔧 Example
+\`\`\`http
+GET /orders
+Warning: 299 - "Deprecated API, use /v2/orders"
+\`\`\`
+
+---
+
+## 5. Documentation & Communication
+
+- Update API docs with clear change logs  
+- Publish migration guides and examples  
+- Notify clients via mailing lists or dashboards  
+
+---
+
+## ⚖️ Quick Comparison Table
+
+| Strategy                    | Pros                               | Cons                            |
+|-----------------------------|------------------------------------|---------------------------------|
+| Non-breaking Changes        | No client impact                   | Limited evolution scope        |
+| Versioning                  | Clear separation of changes        | Extra maintenance overhead     |
+| Consumer-Driven Contracts   | Early breakage detection           | Setup complexity               |
+| Deprecation Policy          | Smooth client migration            | Clients may ignore warnings    |
+
+---
+
+### 🎯 Summary
+
+- Start with **non-breaking changes** whenever possible.  
+- Apply **versioning** for major shifts.  
+- Use **consumer-driven contracts** to catch breaks early.  
+- Implement a clear **deprecation policy** and keep clients informed.  
+`,
+  "important": true,
+  "imageUrl": "/assets/BackwardCompatibility.png"
+},{
+  "question": "How to scale a Spring Boot service for 1M+ users?",
+  "answerMd": `
+# 🚀 Scaling a Spring Boot Service for 1M+ Users
+
+To handle massive traffic, focus on stateless design, data partitioning, caching, auto-scaling, and robust monitoring.
+
+---
+
+## 1. Stateless Microservices
+
+### ✅ Characteristics
+- No in-process state; sessions in Redis or JWT  
+- Horizontal scaling by adding instances  
+- Docker/Kubernetes friendly  
+
+### 🔧 Example
+\`\`\`yaml
+spring:
+  session:
+    store-type: redis
+\`\`\`
+
+### 📊 Use Case
+- Scale checkout or search APIs independently  
+
+---
+
+## 2. Database & Storage
+
+### ✅ Characteristics
+- Read replicas for heavy read load  
+- Sharding or partitioning for writes  
+- Connection pooling (HikariCP)  
+
+### 🔧 Example
+\`\`\`yaml
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 50
+\`\`\`
+
+### 📊 Use Case
+- User profiles in primary; order history in sharded clusters  
+
+---
+
+## 3. Caching & CDN
+
+### ✅ Characteristics
+- In-memory caching (Redis, Hazelcast)  
+- Level-1 (local) and Level-2 (distributed) cache  
+- CDN for static assets and API edge caching  
+
+### 🔧 Example
+\`\`\`java
+@Cacheable("productDetails")
+public Product getProduct(id) { … }
+\`\`\`
+
+### 📊 Use Case
+- Cache product catalogs and configuration data  
+
+---
+
+## 4. Auto-Scaling & Load Balancing
+
+### ✅ Characteristics
+- Kubernetes HorizontalPodAutoscaler  
+- API Gateway or Istio for traffic routing  
+- Graceful shutdown and rolling updates  
+
+### 🔧 Example
+\`\`\`yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+spec:
+  scaleTargetRef:
+    kind: Deployment
+    name: spring-boot-app
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        averageUtilization: 60
+\`\`\`
+
+### 📊 Use Case
+- Scale during flash sales or major events  
+
+---
+
+## 5. Observability & Resilience
+
+### ✅ Characteristics
+- Distributed tracing (OpenTelemetry)  
+- Metrics (Prometheus/Grafana) and alerting  
+- Circuit breakers and rate limiting (Resilience4j)  
+
+### 🔧 Example
+\`\`\`yaml
+resilience4j.circuitbreaker.instances.serviceA:
+  slidingWindowSize: 20
+  failureRateThreshold: 50
+\`\`\`
+
+### 📊 Use Case
+- Prevent cascading failures and get real-time SLIs  
+
+---
+
+### ⚖️ Quick Comparison Table
+
+| Pattern                     | Benefit                         |
+|-----------------------------|---------------------------------|
+| Stateless Microservices     | Unlimited horizontal scale      |
+| Read Replicas & Sharding    | High throughput, balanced writes|
+| Distributed Caching & CDN   | Offload DB, reduce latency      |
+| Auto-Scaling & LB           | Elastic capacity, zero downtime |
+| Observability & Resilience  | Early detection, graceful degrade|
+
+---
+
+### 🎯 Summary
+
+- Design stateless services and partition your data.  
+- Use caching and CDNs to offload your database.  
+- Automate scaling with Kubernetes and gateways.  
+- Implement tracing, metrics, and circuit breakers.  
+`,
+  "important": true,
+  "imageUrl": "/assets/SpringBootScaling.png"
+}
   ]
 },{
 category: 'systemDesign',
