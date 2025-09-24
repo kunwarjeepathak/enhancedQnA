@@ -26,10 +26,12 @@ const categoryIcons: Record<Category, string> = {
   database: '🗄️',
   python: '🐍',
   golang: '🐹',
+  engineeringManager: '🧑‍💼',
   leadership: '👥',
   communication: '💬',
   JPMCQuestions: '🏦',
   hobbies: '🎨'
+  
 };
 
 export default function Sidebar({ categories, active, onSelect }: SidebarProps) {

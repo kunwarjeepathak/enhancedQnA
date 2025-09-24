@@ -3,7 +3,7 @@ import Header   from './components/Header';
 import Sidebar  from './components/Sidebar';
 import QAList   from './components/QAList';
 
-export type Category = 'all' | 'java' | 'systemDesign' | 'springBoot' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies';
+export type Category = 'all' | 'java' | 'systemDesign' | 'springBoot' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager';
 
 const categories = [
   { key: 'all' as Category,        label: 'All' },
@@ -24,7 +24,8 @@ const categories = [
   { key: 'leadership' as Category,    label: 'Leadership' },
   { key: 'communication' as Category,    label: 'Communication' },
   { key: 'JPMQuestions' as Category,    label: 'JPMC questions' },
-  { key: 'hobbies' as Category,    label: 'Hobbies' }
+  { key: 'hobbies' as Category,    label: 'Hobbies' },
+  { key: 'engineeringManager' as Category,    label: 'Engineering Manager' }
 ];
 
 function App() {

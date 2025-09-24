@@ -285,6 +285,24 @@ input:focus {
     height: 1.75rem;
     font-size: 0.75rem;
   }
+  overflow: auto;
+}
+.modal-zoom {
+  background: rgba(255,255,255,0.85);
+  border: none;
+  border-radius: 50%;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.2rem;
+  color: #222;
+  cursor: pointer;
+  margin-right: 0.25rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  transition: background 0.2s;
+}
+.modal-zoom:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
  

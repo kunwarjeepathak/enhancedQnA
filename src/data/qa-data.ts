@@ -18270,7 +18270,216 @@ def main(event: func.EventHubEvent, outputDocument: func.Out[func.Document]):
 ,
 imageUrls: ['/assets/Azure_Functions.png'],
 }]
-},
+},{
+    category: 'engineeringManager',
+    title: 'Leadership & Management',
+    subItems: [
+      {
+        question: 'How would you describe your management style?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'Tell me about a time you had to resolve conflict within your team.',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you motivate underperforming engineers?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you balance delivery speed with technical debt?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'What’s your approach to hiring and building diverse teams?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+    ],
+  },
+  {
+    category: 'engineeringManager',
+    title: 'Technical & System Design',
+    subItems: [
+      {
+        question: 'Walk me through the high-level system design of a project you’ve led.',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you ensure code quality and maintainability at scale?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'What’s your approach to reviewing architecture proposals from your team?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you handle trade-offs between scalability, cost, and delivery timelines?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you stay hands-on technically while managing a team?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+    ],
+  },
+  {
+    category: 'engineeringManager',
+    title: 'Behavioral & Situational',
+    subItems: [
+      {
+        question: 'Tell me about a time you failed as a leader. What did you learn?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'Describe a situation where you had to influence without authority.',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you handle disagreements with product managers or executives?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'Give an example of how you’ve managed competing priorities.',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'Tell me about a time you had to make a tough decision with incomplete data.',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+    ],
+  },
+  {
+    category: 'engineeringManager',
+    title: 'Project & Execution',
+    subItems: [
+      {
+        question: 'How do you prioritize projects across multiple stakeholders?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'What’s your process for setting goals and measuring success?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you handle missed deadlines or slipping roadmaps?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you manage dependencies across teams?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'What’s your approach to risk management in large projects?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+    ],
+  },
+  {
+    category: 'engineeringManager',
+    title: 'Growth & Culture',
+    subItems: [
+      {
+        question: 'How do you mentor and grow engineers into senior roles?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'What’s your philosophy on feedback and performance reviews?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you foster innovation in your team?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you handle burnout or low morale?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'What’s your approach to creating psychological safety?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+    ],
+  },{
+    category: 'engineeringManager',
+    title: 'Advanced & Tricky Scenarios',
+    subItems: [
+      {
+        question: 'How do you handle a situation where your best engineer is toxic to the team culture?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'You’re asked to deliver a project with an unrealistic deadline. How do you respond to leadership?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'What would you do if your team strongly disagrees with a technical direction you believe is correct?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you manage a high performer who consistently misses deadlines due to over-engineering?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'If two senior engineers on your team fundamentally disagree on architecture, how do you resolve it?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you balance being a people manager with staying technically credible in front of your team?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'What would you do if leadership pushes for a solution that you believe introduces long-term risk?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you handle a situation where your team delivers on time, but quality issues surface in production?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'How do you manage a distributed team across time zones without burning people out?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+      {
+        question: 'What’s your approach when you inherit a demotivated team with high attrition?',
+        answerMd: ``,
+        imageUrls: ['/assets/Java17.png'],
+      },
+    ],
+  }
 ];
 
 export default data;
