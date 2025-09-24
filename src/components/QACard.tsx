@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { KeyboardArrowRight, KeyboardArrowDown, Star } from '@mui/icons-material';
 import { QACardData } from '../data/qa-data';
 import SubItem from './SubItem';
 
@@ -13,9 +14,8 @@ export default function QACard({ card }: QACardProps) {
     <div className={`qa-card${card.important ? ' important' : ''}`} data-cat={card.category}>
       <button className="q-header" onClick={() => setOpen(prev => !prev)}>
         <span>{card.title}</span>
-        <span className={`toggle-icon${open ? ' open' : ''}`}>▸</span>
-        {card.important && <span className="important-badge">Important</span>}
-        
+        <span className={`toggle-icon${open ? ' open' : ''}`}>{open ? <KeyboardArrowDown fontSize="small" /> : <KeyboardArrowRight fontSize="small" />}</span>
+        {card.important && <span className="important-badge"><Star fontSize="small" style={{ color: '#fbbf24', marginRight: 4 }} />Important</span>}
       </button>
       {open && (
         <div className="answer">
