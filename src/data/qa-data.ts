@@ -17421,92 +17421,16 @@ question: 'Draw and explain the application architecture you are currently worki
 answerMd: `
 # Q&A Platform Architecture Overview
 
-## 🗺️ Architecture at a Glance (ASCII)
-
-\`\`\`
-+------------+
-|   Client   |
-+-----+------+
-|
-v
-+---------+
-|   CDN   |
-+---------+
-|
-v
-+----------------------+
-|    Frontend App      |
-| (Next.js / React)    |
-+----------+-----------+
-|
-v
-+----------------------+
-|   API Gateway / LB   |
-+----------+-----------+
-|
-+--------------+--------------+
-|              |              |
-v              v              v
-+--------+    +-----------+    +------------+
-| Auth   |    | QA Service|    | DiagramSvc |
-| Service|    |           |    |            |
-+--------+    +-----+-----+    +-----+------+
-|                |
-v                v
-+-----------+    +---------------+
-| Database  |    | Object Store  |
-+-----------+    +---------------+
-|
-v
-+-----------+
-|  Redis    |
-+-----------+
-
-
-
-Provider Claims Attachments
-=============================
-Availity → [CFX] → [S3] → [Lambda] → [DocumentDB] → [Textract/PDF Merging] → [SFTP → FileNet]
-↗ (EventBridge)
-
-
-
-Client / Dashboard
-│
-▼
-Amazon S3
-│ (Writes data)
-▼
-AWS Lambda
-│
-├───────────────────────────────────────┐
-│                                       │
-▼                                       ▼
-Producer Queue                          Amazon SNS
-│
-▼
-Kubernetes Cluster
-│
-├─────────────┬───────────────┬───────────────┐
-│             │               │               │
-▼             ▼               ▼               ▼
-Horizontal    Cluster          Horizontal      Output
-Autoscaler    Autoscaler       Autoscaler      Bucket
-│
-▼
-Administers Containers
-│
-├─────────────┬───────────────┬───────────────┐
-│             │               │               │
-▼             ▼               ▼               ▼
-Executor      Runs             Validates       PostgreSQL
-Containers    Validation       Outputs         PersistentVolume
-
-
-Additional services: SearchSvc (Elasticsearch), Analytics (Kafka → DW), CI/CD Pipeline.
-\`\`\`
-
----
+The AWS-driven claims processing diagram is ready:
+- Architecture Overview flowchart showing: • Availity → CFX → S3 → Lambda → DocumentDB → Textract/PDF Merging → SFTP → FileNet
+• EventBridge branching off Lambda
+- Key Components list detailing:
+- File Ingestion (CFX + S3 + Transfer Family chunks)
+- Event-Driven Processing (Lambda triggers, libarchive, PyPDF2/reportlab, Pillow, Textract)
+- Downstream Integration (SFTP → FileNet, Step Functions retry)
+- Post-Processing (AWS Glue anomaly detection)
+- Error Handling (SQS DLQ, SNS alerts)
+- Impact (20% faster settlements, 40% storage savings)
 
 
 Key Components
@@ -17599,17 +17523,71 @@ Our platform empowers technical authors to create rich Q&A articles blending cod
 | Event-Driven Sync | Decouples services for scalable indexing      | Ordering and duplication          | Idempotent consumers, DLQs         |
 | CI/CD Automation  | Ensures reproducible, zero-downtime deploys   | Pipeline flakiness                | Automated rollback on failure      |
 
+`,
+imageUrls: ['/assets/PCA/PCA1.png','/assets/PCA/PCA.png'],
+},{
+  "question": "Draw and explain the Digitalthread architecture you are currently working on.",
+  "answerMd": `# DigitalThread: UM Authorization System Overview
+
+The DigitalThread UM Authorization System diagram is ready:
+- Architecture Overview flowchart showing:
+  • Producers → GraphQL Gateway → Redis Cluster → Golang Services → Consumers  
+  • Branches from the GraphQL Gateway to UI/Chevron Logic and AI Chatbot  
+- Key Components list detailing:
+  - Data Ingestion Layer (ACMP, Nextgen, PAHUB; GraphQL Gateway with schema stitching)
+  - Caching & Search Layer (Redis Cluster with TTL policies; Redis Search indexing)
+  - Golang Backend (Mutation Engine; API Routing Logic for IVR, EHR, CRM)
+  - UI & AI Chatbot (Chevron Logic UI; Python/LLM Chatbot)
+- Impact (30% faster resolutions; unified data layer replacing 10+ integrations)
+
+## Key Components
+
+1. Data Ingestion Layer  
+   o Sources:  
+    ACMP (Anthem Care Medical Records)  
+    Nextgen (Appeals)  
+    PAHUB (Pharmacy Records)  
+   o GraphQL Gateway:  
+    Unified endpoint for producers to submit UMIDs (JSON payloads)  
+    Schema stitching to normalize data formats across systems  
+
+2. Caching & Search Layer  
+   o Redis Cluster:  
+    Stores UM authorization metadata (patient_id, case_status, timestamps)  
+    TTL policies to auto-expire stale records  
+   o Redis Search Module:  
+    Indexes UMIDs by fields like case_status, patient_id, denial_reason  
+    Enables fast lookups for downstream consumers  
+
+3. Golang Backend  
+   o Mutation Engine:  
+    Processes GraphQL mutations to update Redis based on real-time status changes (e.g., APPROVED → DENIED)  
+   o API Routing Logic:  
+    Dynamically generates REST/GraphQL responses for consumers:  
+     – IVR: Simplified JSON for voice systems  
+     – Sydney Health: FHIR-compliant bundles for EHR integration  
+     – PEGACRM: Enriched metadata for case managers  
+
+4. UI & AI Chatbot  
+   o Chevron Logic UI (React/Angular):  
+    Visualizes case statuses with drill-down workflows (e.g., \"Pending → Escalated\")  
+    Role-based access control (RBAC) for internal teams  
+   o AI Chatbot (Python/LLM):  
+    Trained on historical UM data to answer queries like:  
+     – \"Show all denied cases for Patient X.\"  
+     – \"What’s the average approval time for cardiology requests?\"  
+
 ---
 
-## 🚀 Advanced Considerations
-
-- Multi-region active-active deployment with global DB replication
-- Blue-green deployments and feature flags for safe rollouts
-- Predictive CDN pre-warming via usage analytics
-- ML-driven content recommendations and synonym expansion
-- End-to-end encryption and GDPR audit logging
-`
+## Impact
+- 30% Faster Resolutions: Reduced manual status checks for case managers  
+- Unified Data Layer: Eliminated 10+ point-to-point integrations  
+`,
+  "imageUrls": [
+    "/assets/DigitalThread/digitalthread.png"
+  ]
 }
+
 ]
 },{
 category: 'communication',
