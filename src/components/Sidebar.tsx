@@ -22,6 +22,7 @@ import {
   Chat,
   AccountBalance,
   Palette
+  ,LocalHospital
 } from '@mui/icons-material';
 import { Category } from '../App';
 
@@ -53,6 +54,7 @@ const categoryIcons: Record<Category, JSX.Element> = {
   leadership: <Groups fontSize="small" />,
   communication: <Chat fontSize="small" />,
   JPMCQuestions: <AccountBalance fontSize="small" />,
+  Healthcare: <LocalHospital fontSize="small" />,
   hobbies: <Palette fontSize="small" />
 };
 
