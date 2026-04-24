@@ -3,13 +3,14 @@ import Header   from './components/Header';
 import Sidebar  from './components/Sidebar';
 import QAList   from './components/QAList';
 
-export type Category = 'all' | 'java' | 'systemDesign' | 'springBoot' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'Healthcare';
+export type Category = 'all' | 'java' | 'systemDesign' | 'springBoot' | 'microservices' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'Healthcare';
 
 const categories = [
   { key: 'all' as Category,        label: 'All' },
   { key: 'java' as Category,       label: 'JAVA Architect' },
   { key: 'systemDesign' as Category,       label: 'System Design Architect' },
   { key: 'springBoot' as Category, label: 'Spring' },
+  { key: 'microservices' as Category, label: 'Microservices' },
   { key: 'cloud' as Category,      label: 'Cloud Architect' },
   { key: 'devOps' as Category,      label: 'DevOps Architect' },
   { key: 'kafka' as Category,      label: 'Kafka' },

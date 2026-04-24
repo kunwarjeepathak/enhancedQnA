@@ -18458,6 +18458,1664 @@ imageUrls: ['/assets/Azure_Functions.png'],
       },
     ],
   }
+,
+// ─────────────────────────────────────────────
+// EVENT DRIVEN MICROSERVICES ARCHITECTING
+// ─────────────────────────────────────────────
+{
+  category: 'microservices',
+  title: 'Event Driven Microservices Architecting',
+  important: true,
+  subItems: [
+
+    // ── 1. CORE CONCEPTS ──────────────────────────────────────────────────────
+    {
+      question: 'What is Event-Driven Architecture (EDA) and how does it differ from Request-Driven (REST/gRPC)?',
+      important: true,
+      answerMd: `
+# Event-Driven Architecture (EDA) — Core Concepts
+
+## 🔑 What Is EDA?
+Event-Driven Architecture is a design paradigm where services **communicate by producing and consuming events** rather than making direct synchronous calls. An **event** is an immutable record that something happened (e.g., \`OrderPlaced\`, \`PaymentFailed\`).
+
+---
+
+## ⚖️ EDA vs Request-Driven (REST/gRPC)
+
+| Dimension            | Request-Driven (REST/gRPC)                    | Event-Driven (Kafka/RabbitMQ)                        |
+|----------------------|-----------------------------------------------|------------------------------------------------------|
+| Coupling             | Temporal + behavioral coupling                | Fully decoupled — producer doesn't know consumers    |
+| Communication        | Synchronous call & response                   | Asynchronous, fire-and-forget                        |
+| Availability         | Both parties must be UP simultaneously        | Consumer can be offline; events buffered             |
+| Scalability          | Limited by the slowest downstream             | Consumers scale independently                        |
+| Error Handling       | Caller handles failures immediately           | Dead Letter Queue, retry topic for async failures    |
+| Latency              | Low end-to-end (tight loop)                   | Higher perceived latency (async by nature)           |
+| Traceability         | Easier — single call stack                    | Harder — requires distributed tracing (e.g. Zipkin) |
+| Use Case             | CRUD operations, real-time queries            | Workflows, fan-out, audit log, stream processing     |
+
+---
+
+## 🧩 Three Roles in EDA
+
+\`\`\`
+Producer ──► Event Broker (Kafka/RabbitMQ) ──► Consumer(s)
+              (stores & routes events)
+\`\`\`
+
+- **Producer**: Emits events when state changes  
+- **Event Broker**: Durable, ordered, distributed log  
+- **Consumer**: Subscribes and reacts independently
+
+---
+
+## 🗂️ Event Types
+
+| Type              | Example                    | Description                                  |
+|-------------------|----------------------------|----------------------------------------------|
+| Domain Event      | \`OrderPlaced\`            | Fact about business state change             |
+| Integration Event | \`OrderPlacedIntegration\` | Crosses service boundaries                   |
+| Command Event     | \`ProcessPayment\`         | Tells a service to do something              |
+| Query Event       | \`GetOrderStatus\`         | Rarely used in EDA (use CQRS read model)     |
+
+---
+
+## ✅ When to Choose EDA
+- Fan-out to multiple consumers (notification + inventory + analytics all on one order)
+- Long-running workflows (Saga pattern)
+- Audit trail / event sourcing requirements
+- High throughput pipelines (IoT, clickstreams, financial feeds)
+- Decoupling services that evolve independently
+
+## ❌ When NOT to Use EDA
+- Simple CRUD with a single consumer
+- Hard real-time response needed (millisecond SLAs)
+- Strong consistency is mandatory and can't be relaxed
+`
+    },
+
+    // ── 2. MESSAGE BROKER CHOICES ─────────────────────────────────────────────
+    {
+      question: 'How do you choose between Kafka, RabbitMQ, and AWS SNS/SQS as an Event Broker?',
+      important: true,
+      answerMd: `
+# Choosing the Right Event Broker
+
+## 🗺️ Quick Decision Matrix
+
+| Criteria               | Apache Kafka                        | RabbitMQ                         | AWS SNS/SQS                        |
+|------------------------|-------------------------------------|----------------------------------|------------------------------------|
+| **Model**              | Distributed commit log (pull)       | Message queue / pub-sub (push)   | Managed pub-sub + queue (cloud)    |
+| **Throughput**         | Millions of msg/sec                 | ~50k–100k msg/sec                | ~10k–300k msg/sec (SQS)            |
+| **Message Retention**  | Days / weeks / forever (compaction) | Until consumed (no log replay)   | SQS: 14 days; SNS: no storage      |
+| **Replay**             | ✅ Yes — rewind consumer offset     | ❌ No                            | ❌ No (once consumed, gone)        |
+| **Ordering**           | Per-partition ordering              | Per-queue FIFO (opt-in)          | FIFO queues (SQS FIFO)             |
+| **Consumer Groups**    | ✅ Native, independent offsets      | ✅ Competing consumers           | ✅ SNS → multiple SQS queues       |
+| **Schema Registry**    | Confluent / Apicurio                | Manual or plugins                | Manual validation                  |
+| **Operational Cost**   | High (cluster management)           | Medium                           | Low (fully managed)                |
+| **Best For**           | Event sourcing, stream processing   | Task queues, RPC, complex routing| Cloud-native AWS workloads         |
+
+---
+
+## 🏗️ Kafka Architecture Deep Dive (Most Common in EDA)
+
+\`\`\`
+Topic: order-events
+  ├── Partition 0: [OrderPlaced#1, OrderPlaced#4, ...]
+  ├── Partition 1: [OrderPlaced#2, OrderPlaced#5, ...]
+  └── Partition 2: [OrderPlaced#3, OrderPlaced#6, ...]
+
+Consumer Group A (Inventory Service)
+  ├── Consumer A1 ──► Partition 0
+  ├── Consumer A2 ──► Partition 1
+  └── Consumer A3 ──► Partition 2
+
+Consumer Group B (Analytics Service)  
+  └── Consumer B1 ──► All Partitions (independent offset)
+\`\`\`
+
+**Key Kafka Concepts:**
+- **Topic**: Named stream of events (like a table in a DB)
+- **Partition**: Unit of parallelism and ordering guarantee
+- **Offset**: Pointer to last consumed message — persisted in \`__consumer_offsets\`
+- **Consumer Group**: Group of consumers sharing partition load — each partition assigned to exactly one consumer in the group
+- **Replication Factor**: Number of broker replicas for fault tolerance (typically 3 in prod)
+
+---
+
+## 🔧 Kafka Producer Config (Java Spring Boot)
+
+\`\`\`java
+@Configuration
+public class KafkaProducerConfig {
+
+    @Bean
+    public ProducerFactory<String, Object> producerFactory() {
+        Map<String, Object> config = new HashMap<>();
+        config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "kafka:9092");
+        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
+        // Durability settings
+        config.put(ProducerConfig.ACKS_CONFIG, "all");          // Wait for all replicas
+        config.put(ProducerConfig.RETRIES_CONFIG, 3);
+        config.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true); // Exactly-once semantics
+        return new DefaultKafkaProducerFactory<>(config);
+    }
+
+    @Bean
+    public KafkaTemplate<String, Object> kafkaTemplate() {
+        return new KafkaTemplate<>(producerFactory());
+    }
+}
+\`\`\`
+
+---
+
+## 📐 Partition Key Strategy
+
+\`\`\`java
+// Partition by customerId — ensures all events for same customer go to same partition (ordering guarantee)
+kafkaTemplate.send("order-events", order.getCustomerId(), orderEvent);
+
+// Round-robin (no key) — best throughput, no ordering
+kafkaTemplate.send("order-events", orderEvent);
+\`\`\`
+
+> **Rule**: Use a **domain key** (customerId, orderId) when you need ordering for that entity. Use no key for maximum throughput when ordering doesn't matter.
+
+---
+
+## ⚙️ Production Kafka Tuning
+
+| Config                     | Recommended Value | Why                                               |
+|----------------------------|-------------------|---------------------------------------------------|
+| \`acks=all\`               | Required for prod | Ensures no data loss on broker failure            |
+| \`replication.factor=3\`   | Min 3             | Tolerates 1 broker failure                        |
+| \`min.insync.replicas=2\`  | 2                 | At least 2 replicas acked before producer succeeds|
+| \`retention.ms=604800000\` | 7 days            | Allows replay window for new consumers            |
+| \`compression.type=lz4\`   | lz4               | Best throughput/compression trade-off             |
+| \`max.poll.records=500\`   | 100–500           | Tune batch size for consumer throughput           |
+`
+    },
+
+    // ── 3. OUTBOX PATTERN ─────────────────────────────────────────────────────
+    {
+      question: 'What is the Transactional Outbox Pattern and why is it critical in EDA?',
+      important: true,
+      answerMd: `
+# Transactional Outbox Pattern
+
+## 🚨 The Core Problem
+
+In EDA, you often need to **both** update your database AND publish an event atomically. Without care:
+
+\`\`\`java
+// ❌ DANGEROUS — two separate operations, NOT atomic
+orderRepository.save(order);          // Step 1: DB write succeeds
+kafkaTemplate.send("order-events", e); // Step 2: Kafka publish FAILS → event LOST
+\`\`\`
+
+If Step 2 fails, your database has the order but no event was published — **silent data loss**.
+
+---
+
+## ✅ The Outbox Pattern Solution
+
+\`\`\`
+                    ┌─────────────────────────────────┐
+                    │       Application Service         │
+                    │                                   │
+DB Transaction  ────┤  1. UPDATE orders SET status=... │
+(Atomic)        ────┤  2. INSERT INTO outbox_events ... │
+                    └─────────────┬───────────────────┘
+                                  │ (same transaction)
+                    ┌─────────────▼───────────────────┐
+                    │         Outbox Table              │
+                    │  id | aggregate_type | payload    │
+                    │  1  | Order          | {...}       │
+                    └─────────────┬───────────────────┘
+                                  │
+                    ┌─────────────▼───────────────────┐
+                    │   Outbox Relay (Debezium / CDC)   │
+                    │   Polls/streams outbox rows       │
+                    │   Publishes to Kafka              │
+                    └─────────────┬───────────────────┘
+                                  │
+                    ┌─────────────▼───────────────────┐
+                    │           Kafka Topic             │
+                    └─────────────────────────────────┘
+\`\`\`
+
+---
+
+## 🗄️ Outbox Table Schema
+
+\`\`\`sql
+CREATE TABLE outbox_events (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    aggregate_type  VARCHAR(100) NOT NULL,  -- e.g. 'Order'
+    aggregate_id    VARCHAR(100) NOT NULL,  -- e.g. orderId
+    event_type      VARCHAR(100) NOT NULL,  -- e.g. 'OrderPlaced'
+    payload         JSONB        NOT NULL,
+    created_at      TIMESTAMP    NOT NULL DEFAULT now(),
+    published       BOOLEAN      NOT NULL DEFAULT false
+);
+\`\`\`
+
+---
+
+## 💻 Spring Boot Implementation
+
+\`\`\`java
+@Service
+@Transactional
+public class OrderService {
+
+    @Autowired private OrderRepository orderRepo;
+    @Autowired private OutboxEventRepository outboxRepo;
+
+    public Order placeOrder(PlaceOrderCommand cmd) {
+        Order order = Order.create(cmd);
+        orderRepo.save(order);  // 1. Save business entity
+
+        // 2. Write outbox event in SAME transaction
+        OutboxEvent event = OutboxEvent.builder()
+            .aggregateType("Order")
+            .aggregateId(order.getId().toString())
+            .eventType("OrderPlaced")
+            .payload(toJson(new OrderPlacedEvent(order)))
+            .build();
+        outboxRepo.save(event);  // Atomic with the order save!
+
+        return order;
+    }
+}
+\`\`\`
+
+---
+
+## 🔄 Two Outbox Relay Strategies
+
+### Strategy 1: Debezium (CDC — Change Data Capture) ✅ Preferred
+
+\`\`\`yaml
+# Debezium connector config (Kafka Connect)
+connector.class: io.debezium.connector.postgresql.PostgresConnector
+database.hostname: postgres
+database.dbname: orders_db
+table.include.list: public.outbox_events
+transforms: outbox
+transforms.outbox.type: io.debezium.transforms.outbox.EventRouter
+\`\`\`
+
+Debezium reads the **PostgreSQL WAL (Write-Ahead Log)** — zero polling overhead, sub-second latency.
+
+### Strategy 2: Polling Publisher
+
+\`\`\`java
+@Scheduled(fixedDelay = 1000)
+@Transactional
+public void publishPendingEvents() {
+    List<OutboxEvent> events = outboxRepo.findByPublishedFalseOrderByCreatedAt();
+    events.forEach(event -> {
+        kafkaTemplate.send(event.getEventType(), event.getAggregateId(), event.getPayload());
+        event.markPublished();
+    });
+    outboxRepo.saveAll(events);
+}
+\`\`\`
+
+---
+
+## 📊 At-Least-Once Guarantee
+
+The outbox pattern gives **at-least-once delivery** — the relay may publish duplicates if it crashes mid-publish. This means **consumers MUST be idempotent** (covered in Idempotency section).
+`
+    },
+
+    // ── 4. SAGA PATTERN ───────────────────────────────────────────────────────
+    {
+      question: 'Explain the Saga Pattern for distributed transactions — Choreography vs Orchestration',
+      important: true,
+      answerMd: `
+# Saga Pattern — Distributed Transactions
+
+## 🎯 Why Sagas?
+
+In microservices, you can't use a 2-Phase Commit (2PC) across service boundaries — it creates tight coupling and availability problems. The **Saga Pattern** breaks a distributed transaction into a sequence of local transactions, each publishing events to trigger the next step.
+
+If a step fails, **compensating transactions** undo previous steps.
+
+---
+
+## 🕺 Choreography-Based Saga (Decentralized)
+
+Each service listens for events and decides what to do next — **no central coordinator**.
+
+\`\`\`
+OrderService          PaymentService         InventoryService
+    │                      │                       │
+    │──OrderPlaced─────────►│                       │
+    │                      │──PaymentProcessed─────►│
+    │                      │                       │──InventoryReserved──►[Done]
+    │                      │                       │
+    │◄─────────────InventoryFailed──────────────────│
+    │◄─PaymentRefunded─────│                       │
+    │──OrderCancelled       │                       │
+\`\`\`
+
+\`\`\`java
+// PaymentService — listens and reacts
+@KafkaListener(topics = "order-events", groupId = "payment-service")
+public void handleOrderPlaced(OrderPlacedEvent event) {
+    try {
+        Payment payment = paymentService.charge(event.getCustomerId(), event.getAmount());
+        // Publish success event
+        kafkaTemplate.send("payment-events", new PaymentProcessedEvent(event.getOrderId()));
+    } catch (InsufficientFundsException e) {
+        // Publish failure — triggers compensation
+        kafkaTemplate.send("payment-events", new PaymentFailedEvent(event.getOrderId(), e.getMessage()));
+    }
+}
+
+// OrderService — listens for compensation
+@KafkaListener(topics = "payment-events")
+public void handlePaymentFailed(PaymentFailedEvent event) {
+    orderService.cancelOrder(event.getOrderId(), "Payment failed: " + event.getReason());
+}
+\`\`\`
+
+**Pros**: No single point of failure, fully decoupled  
+**Cons**: Hard to track overall workflow state, complex to debug, cyclical event chains
+
+---
+
+## 🎭 Orchestration-Based Saga (Centralized)
+
+A dedicated **Saga Orchestrator** drives the workflow — services respond to commands.
+
+\`\`\`
+              Saga Orchestrator
+                    │
+        ┌───────────┼───────────┐
+        ▼           ▼           ▼
+  OrderService PaymentService InventoryService
+  
+State Machine:
+PENDING → PAYMENT_PROCESSING → INVENTORY_RESERVING → COMPLETED
+                    │                    │
+                    ▼                    ▼
+             PAYMENT_FAILED        INVENTORY_FAILED
+                    │                    │
+                    └────►  COMPENSATING → CANCELLED
+\`\`\`
+
+\`\`\`java
+@Component
+public class PlaceOrderSaga {
+
+    @SagaEventHandler(associationProperty = "orderId")
+    public void handle(OrderCreatedEvent event) {
+        // Step 1: Send command to payment service
+        commandGateway.send(new ProcessPaymentCommand(event.getOrderId(), event.getAmount()));
+        SagaLifecycle.associateWith("orderId", event.getOrderId());
+    }
+
+    @SagaEventHandler(associationProperty = "orderId")
+    public void handle(PaymentProcessedEvent event) {
+        // Step 2: Reserve inventory
+        commandGateway.send(new ReserveInventoryCommand(event.getOrderId(), event.getItems()));
+    }
+
+    @SagaEventHandler(associationProperty = "orderId")
+    public void handle(PaymentFailedEvent event) {
+        // Compensate: Cancel the order
+        commandGateway.send(new CancelOrderCommand(event.getOrderId(), "Payment failed"));
+        SagaLifecycle.end();
+    }
+
+    @SagaEventHandler(associationProperty = "orderId")
+    public void handle(InventoryReservedEvent event) {
+        // All steps done — complete the saga
+        commandGateway.send(new ConfirmOrderCommand(event.getOrderId()));
+        SagaLifecycle.end();
+    }
+}
+\`\`\`
+
+*(Uses Axon Framework — popular for saga orchestration in Java)*
+
+---
+
+## ⚖️ Choreography vs Orchestration
+
+| Aspect              | Choreography                          | Orchestration                           |
+|---------------------|---------------------------------------|-----------------------------------------|
+| Control             | Distributed (each service decides)    | Centralized (orchestrator decides)      |
+| Coupling            | Services know only events             | Services know only commands             |
+| Visibility          | Hard to track — no single view        | Easy — orchestrator holds state         |
+| Failure Handling    | Complex — compensations spread out    | Clear — orchestrator manages rollbacks  |
+| Scalability         | Excellent — no central bottleneck     | Good — orchestrator can be scaled       |
+| Complexity          | Grows quickly with workflow steps     | Manageable via state machine            |
+| Use When            | Simple 2-3 step flows                 | Complex multi-step business workflows   |
+
+---
+
+## 🔑 Saga Design Rules
+
+1. **Compensating transactions must be idempotent** — they can be triggered multiple times
+2. **Never rely on rollback** — compensate forward, don't abort
+3. **Always publish events in local transactions** (use Outbox pattern!)
+4. **Mark saga steps** with correlation IDs for traceability
+5. **Handle timeouts** — if a step never responds, trigger compensation after deadline
+`
+    },
+
+    // ── 5. CQRS ───────────────────────────────────────────────────────────────
+    {
+      question: 'What is CQRS and how does it integrate with Event-Driven Architecture?',
+      important: true,
+      answerMd: `
+# CQRS — Command Query Responsibility Segregation
+
+## 🎯 What Is CQRS?
+
+CQRS separates the **write model (Commands)** from the **read model (Queries)**. Each is optimized independently.
+
+\`\`\`
+         Write Side                      Read Side
+   ┌─────────────────┐             ┌─────────────────┐
+   │  Command Handler │             │   Query Handler  │
+   │  (validates &   │             │  (fast reads,    │
+   │   applies cmds) │             │   denormalized)  │
+   └────────┬────────┘             └────────▲────────┘
+            │ Domain Events                  │
+            │                                │
+   ┌────────▼────────┐             ┌─────────┴───────┐
+   │  Write Store    │──Kafka──────► Read Store       │
+   │  (normalized,   │  events     │  (denormalized,  │
+   │   relational)   │             │   Elasticsearch, │
+   └─────────────────┘             │   Redis, etc.)  │
+                                   └─────────────────┘
+\`\`\`
+
+---
+
+## 💻 Spring Boot CQRS Implementation
+
+### Command Side
+
+\`\`\`java
+// Command
+public record PlaceOrderCommand(UUID orderId, UUID customerId, List<OrderItem> items, BigDecimal total) {}
+
+// Command Handler
+@Service
+@Transactional
+public class OrderCommandHandler {
+
+    @CommandHandler
+    public UUID handle(PlaceOrderCommand cmd) {
+        Order order = new Order(cmd.orderId(), cmd.customerId(), cmd.items(), cmd.total());
+        orderRepository.save(order);
+
+        // Publish event for read-side projection update
+        eventPublisher.publish(new OrderPlacedEvent(order.getId(), order.getCustomerId(), order.getTotal()));
+        return order.getId();
+    }
+}
+\`\`\`
+
+### Query Side — Projection Builder
+
+\`\`\`java
+// Read model — optimized for UI queries
+@Entity @Table(name = "order_summary_view")
+public class OrderSummaryView {
+    private UUID orderId;
+    private String customerName;   // Denormalized from Customer service
+    private String status;
+    private BigDecimal total;
+    private LocalDateTime placedAt;
+    private List<String> itemNames; // Denormalized from Product service
+}
+
+// Event Handler — builds & updates the read model
+@Service
+public class OrderProjection {
+
+    @KafkaListener(topics = "order-events")
+    public void on(OrderPlacedEvent event) {
+        OrderSummaryView view = new OrderSummaryView();
+        view.setOrderId(event.getOrderId());
+        view.setStatus("PLACED");
+        view.setTotal(event.getTotal());
+        // Enrich with customer name from customer service or cache
+        view.setCustomerName(customerCache.get(event.getCustomerId()));
+        orderSummaryRepo.save(view);
+    }
+
+    @KafkaListener(topics = "order-events")
+    public void on(OrderShippedEvent event) {
+        OrderSummaryView view = orderSummaryRepo.findById(event.getOrderId()).orElseThrow();
+        view.setStatus("SHIPPED");
+        orderSummaryRepo.save(view);
+    }
+}
+
+// Query Handler — reads from optimized store
+@Service
+public class OrderQueryHandler {
+
+    public List<OrderSummaryView> getOrdersForCustomer(UUID customerId) {
+        return orderSummaryRepo.findByCustomerIdOrderByPlacedAtDesc(customerId); // Blazing fast
+    }
+}
+\`\`\`
+
+---
+
+## 📊 Read Store Options
+
+| Store            | Best For                                     | Trade-off                      |
+|------------------|----------------------------------------------|--------------------------------|
+| PostgreSQL view  | Simple projections, relational joins         | Not easily scalable            |
+| Elasticsearch    | Full-text search, complex filters            | Eventual consistency           |
+| Redis            | Ultra-low latency lookups (dashboard counts) | Memory cost                    |
+| MongoDB          | Flexible, nested document queries            | No strong transactions         |
+| ClickHouse       | Time-series analytics, aggregations          | Not for transactional reads    |
+
+---
+
+## ⚡ CQRS Benefits in EDA
+
+| Benefit               | Description                                                           |
+|-----------------------|-----------------------------------------------------------------------|
+| Independent scaling   | Read replicas scale separately from write nodes                       |
+| Optimized read models | Denormalized, pre-joined data — no expensive joins at query time      |
+| Event replay          | Rebuild any read model by replaying Kafka events from offset 0        |
+| Multiple projections  | Same events → different read models for different use cases           |
+| Tech diversity        | Write in Postgres, Read in Elasticsearch — best tool for each job     |
+
+---
+
+## ⚠️ Eventual Consistency in CQRS
+
+\`\`\`
+Write completes at T=0ms
+Kafka propagates at T=10ms
+Projection updates at T=50ms
+User sees updated data at T=50ms+
+\`\`\`
+
+This **lag** is acceptable in most cases. Strategies to handle it:
+- Return command result directly (bypass read model for immediate response)
+- Use **version numbers** in the UI to show "processing" state
+- For critical queries, read from write model directly (escape hatch)
+`
+    },
+
+    // ── 6. EVENT SOURCING ─────────────────────────────────────────────────────
+    {
+      question: 'What is Event Sourcing and when should you use it over traditional state storage?',
+      answerMd: `
+# Event Sourcing
+
+## 🎯 What Is Event Sourcing?
+
+Instead of storing the **current state** of an entity, you store the **full sequence of events** that led to that state. The current state is derived by **replaying** all events.
+
+\`\`\`
+Traditional:
+orders table: { id: 1, status: SHIPPED, total: 99.99 }
+
+Event Sourced:
+events table:
+  { orderId: 1, type: OrderPlaced,   data: {total: 99.99},  at: T1 }
+  { orderId: 1, type: PaymentTaken,  data: {amount: 99.99}, at: T2 }
+  { orderId: 1, type: OrderShipped,  data: {trackId: XYZ},  at: T3 }
+  
+Current state = replay all 3 events
+\`\`\`
+
+---
+
+## 💻 Implementation
+
+\`\`\`java
+// Domain events
+public record OrderPlacedEvent(UUID orderId, List<OrderItem> items, BigDecimal total) {}
+public record OrderShippedEvent(UUID orderId, String trackingId) {}
+public record OrderCancelledEvent(UUID orderId, String reason) {}
+
+// Aggregate — reconstructed by replaying events
+public class Order {
+    private UUID id;
+    private OrderStatus status;
+    private BigDecimal total;
+    private List<DomainEvent> uncommittedChanges = new ArrayList<>();
+
+    // Rehydrate from event stream
+    public static Order rehydrate(List<DomainEvent> events) {
+        Order order = new Order();
+        events.forEach(order::apply);
+        return order;
+    }
+
+    // Command method — validates and records event
+    public void ship(String trackingId) {
+        if (status != OrderStatus.PAID) throw new IllegalStateException("Cannot ship unpaid order");
+        apply(new OrderShippedEvent(this.id, trackingId));
+    }
+
+    // Apply method — mutates state based on event
+    private void apply(DomainEvent event) {
+        if (event instanceof OrderPlacedEvent e) {
+            this.id = e.orderId();
+            this.status = OrderStatus.PLACED;
+            this.total = e.total();
+        } else if (event instanceof OrderShippedEvent e) {
+            this.status = OrderStatus.SHIPPED;
+        } else if (event instanceof OrderCancelledEvent e) {
+            this.status = OrderStatus.CANCELLED;
+        }
+        uncommittedChanges.add(event);
+    }
+}
+\`\`\`
+
+\`\`\`java
+// Event Store Repository
+@Repository
+public class EventStoreRepository {
+
+    public void save(UUID aggregateId, List<DomainEvent> events, int expectedVersion) {
+        // Optimistic locking — prevent concurrent write conflicts
+        int currentVersion = eventStore.getVersion(aggregateId);
+        if (currentVersion != expectedVersion) {
+            throw new OptimisticConcurrencyException("Aggregate modified concurrently");
+        }
+        eventStore.append(aggregateId, events);
+    }
+
+    public Order load(UUID orderId) {
+        List<DomainEvent> events = eventStore.loadEvents(orderId);
+        return Order.rehydrate(events);
+    }
+}
+\`\`\`
+
+---
+
+## 📸 Snapshots (Performance Optimization)
+
+Replaying 10,000 events on every load is expensive. Snapshots save current state periodically:
+
+\`\`\`java
+public Order loadWithSnapshot(UUID orderId) {
+    Optional<Snapshot> snapshot = snapshotStore.getLatest(orderId);
+    
+    if (snapshot.isPresent()) {
+        // Load state from snapshot, then replay only newer events
+        Order order = snapshot.get().toOrder();
+        List<DomainEvent> recentEvents = eventStore.loadAfter(orderId, snapshot.get().getVersion());
+        recentEvents.forEach(order::apply);
+        return order;
+    }
+    
+    return Order.rehydrate(eventStore.loadEvents(orderId));
+}
+\`\`\`
+
+---
+
+## ✅ When to Use Event Sourcing
+
+| Use Case                        | Why ES Helps                                         |
+|---------------------------------|------------------------------------------------------|
+| Audit trail required            | Full history is the source of truth by design        |
+| Financial transactions          | Every cent movement is traceable                     |
+| Debugging production issues     | Replay events to reproduce any past state            |
+| CQRS + multiple read models     | Rebuild any projection from event stream at any time |
+| Temporal queries ("state at T") | Replay up to any point in time                       |
+
+## ❌ When NOT to Use Event Sourcing
+
+- Simple CRUD with no audit requirements
+- High-velocity writes with no replay need (logs belong in ELK, not ES)
+- Team unfamiliar with the paradigm (steep learning curve)
+- Short-lived entities (shopping cart with no history value)
+`
+    },
+
+    // ── 7. SCHEMA REGISTRY ────────────────────────────────────────────────────
+    {
+      question: 'How do you manage Event Schema evolution and backward compatibility across services?',
+      important: true,
+      answerMd: `
+# Event Schema Management & Evolution
+
+## 🚨 The Schema Problem
+
+Without schema management, a producer adding a new required field breaks all existing consumers.
+
+\`\`\`json
+// Producer v1 publishes:
+{ "orderId": "123", "total": 99.99 }
+
+// Producer v2 publishes (breaking change!):
+{ "orderId": "123", "amount": 99.99, "currency": "USD" }  // renamed 'total' to 'amount'
+
+// v1 consumers crash — "total" field missing
+\`\`\`
+
+---
+
+## 🗄️ Schema Registry (Confluent / Apicurio)
+
+\`\`\`
+Producer ──(Schema Check)──► Schema Registry ──► Kafka
+                                    │
+Consumer ──(Schema Fetch)───────────┘
+\`\`\`
+
+Every producer **registers** a schema. Every consumer **fetches & validates** before deserializing.
+
+---
+
+## 📋 Compatibility Rules
+
+| Mode                  | Rule                                                     | Example                          |
+|-----------------------|----------------------------------------------------------|----------------------------------|
+| **BACKWARD** (default)| New schema readable by old consumers                     | Add optional field with default  |
+| **FORWARD**           | Old schema readable by new consumers                     | Remove field (old producer sends it, new consumer ignores) |
+| **FULL**              | Both backward and forward compatible                     | Only add optional fields         |
+| **NONE**              | No compatibility check                                   | Only for dev/testing             |
+
+---
+
+## ✅ Safe Schema Evolution Rules
+
+\`\`\`json
+// ✅ SAFE — Add optional field with default
+{
+  "type": "record",
+  "name": "OrderPlaced",
+  "fields": [
+    { "name": "orderId",  "type": "string" },
+    { "name": "total",    "type": "double" },
+    { "name": "currency", "type": "string", "default": "USD" }  // NEW — safe
+  ]
+}
+
+// ❌ BREAKING — Rename field (old consumers can't find 'amount')
+{ "name": "amount", "type": "double" }  // was 'total'
+
+// ❌ BREAKING — Remove required field
+// Remove 'total' with no default — old messages fail
+\`\`\`
+
+---
+
+## 🔄 Versioned Event Types Strategy
+
+\`\`\`java
+// Use versioned event types as an alternative to schema evolution
+public record OrderPlacedV1(String orderId, double total) {}
+public record OrderPlacedV2(String orderId, double total, String currency, String region) {}
+
+// Consumer handles both versions
+@KafkaListener(topics = "order-events")
+public void handle(ConsumerRecord<String, String> record) {
+    String eventType = record.headers().lastHeader("eventType").value().toString();
+
+    switch (eventType) {
+        case "OrderPlacedV1" -> process(mapper.readValue(record.value(), OrderPlacedV1.class));
+        case "OrderPlacedV2" -> process(mapper.readValue(record.value(), OrderPlacedV2.class));
+    }
+}
+\`\`\`
+
+---
+
+## 📦 Avro Schema with Registry (Java)
+
+\`\`\`java
+@Bean
+public ProducerFactory<String, GenericRecord> avroProducerFactory() {
+    Map<String, Object> config = new HashMap<>();
+    config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "kafka:9092");
+    config.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://schema-registry:8081");
+    config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class);
+    return new DefaultKafkaProducerFactory<>(config);
+}
+\`\`\`
+
+---
+
+## 🏷️ Event Envelope Pattern
+
+Always wrap events with metadata — schema version, correlation ID, timestamp:
+
+\`\`\`json
+{
+  "eventId":        "uuid-v4",
+  "eventType":      "OrderPlaced",
+  "schemaVersion":  "2.1",
+  "aggregateId":    "order-123",
+  "aggregateType":  "Order",
+  "occurredAt":     "2024-01-15T10:30:00Z",
+  "correlationId":  "request-trace-id",
+  "causationId":    "parent-event-id",
+  "payload": {
+    "orderId": "order-123",
+    "total": 99.99,
+    "currency": "USD"
+  }
+}
+\`\`\`
+`
+    },
+
+    // ── 8. IDEMPOTENCY ────────────────────────────────────────────────────────
+    {
+      question: 'How do you handle Idempotency and exactly-once processing in event consumers?',
+      important: true,
+      answerMd: `
+# Idempotency & Exactly-Once Processing
+
+## 🔑 Why Idempotency Is Non-Negotiable
+
+Kafka guarantees **at-least-once delivery** by default. The same event **will** be delivered more than once if:
+- Consumer crashes after processing but before committing offset
+- Network timeout causes broker to retry
+- Consumer rebalance mid-processing
+
+\`\`\`
+Event: OrderPlaced#123 published once
+Consumer processes it → sends email → crashes before offset commit
+Consumer restarts → replays event → sends duplicate email ❌
+\`\`\`
+
+---
+
+## ✅ Idempotency Strategies
+
+### Strategy 1: Idempotency Key in Database
+
+\`\`\`java
+@Service
+@Transactional
+public class PaymentEventConsumer {
+
+    @KafkaListener(topics = "order-events")
+    public void handleOrderPlaced(OrderPlacedEvent event) {
+        // Check if already processed (idempotency check)
+        if (processedEventRepo.existsByEventId(event.getEventId())) {
+            log.info("Duplicate event ignored: {}", event.getEventId());
+            return;  // idempotent — safe to skip
+        }
+
+        // Process the event
+        paymentService.initiatePayment(event.getOrderId(), event.getTotal());
+
+        // Mark as processed (in SAME transaction as business logic)
+        processedEventRepo.save(new ProcessedEvent(event.getEventId(), LocalDateTime.now()));
+    }
+}
+\`\`\`
+
+\`\`\`sql
+CREATE TABLE processed_events (
+    event_id   UUID PRIMARY KEY,
+    processed_at TIMESTAMP NOT NULL
+);
+-- Index for fast lookups
+CREATE INDEX idx_processed_events_event_id ON processed_events(event_id);
+-- Clean up old records periodically (keep only recent 30 days)
+\`\`\`
+
+---
+
+### Strategy 2: Natural Idempotency (Upsert)
+
+\`\`\`java
+// Upsert — processing twice produces same result
+@KafkaListener(topics = "order-events")
+public void handleOrderStatusUpdate(OrderStatusUpdatedEvent event) {
+    // ON CONFLICT DO UPDATE — safe to call multiple times
+    orderRepo.upsertStatus(event.getOrderId(), event.getStatus(), event.getVersion());
+}
+
+// JPA — merge instead of save
+public void upsertStatus(UUID orderId, OrderStatus status, int version) {
+    orderRepo.findById(orderId).ifPresent(order -> {
+        if (order.getVersion() < version) {  // Only apply if newer
+            order.setStatus(status);
+            order.setVersion(version);
+            orderRepo.save(order);
+        }
+    });
+}
+\`\`\`
+
+---
+
+### Strategy 3: Kafka Exactly-Once Semantics (EOS)
+
+\`\`\`java
+// Producer with transactions
+@Bean
+public KafkaTransactionManager<String, Object> kafkaTransactionManager() {
+    ProducerFactory<String, Object> pf = producerFactory();
+    ((DefaultKafkaProducerFactory<String, Object>) pf).setTransactionIdPrefix("tx-");
+    return new KafkaTransactionManager<>(pf);
+}
+
+// Consumer with read_committed isolation
+config.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
+
+// Transactional consume-transform-produce
+@Transactional("kafkaTransactionManager")
+@KafkaListener(topics = "order-events")
+public void processAndPublish(OrderPlacedEvent event) {
+    // Both consume AND produce are in the same Kafka transaction
+    PaymentEvent paymentEvent = paymentService.process(event);
+    kafkaTemplate.send("payment-events", paymentEvent);
+    // If anything fails, Kafka rolls back both consume offset + produce
+}
+\`\`\`
+
+---
+
+## 📊 Delivery Guarantee Comparison
+
+| Guarantee         | How Achieved                                           | Overhead | Use When                          |
+|-------------------|--------------------------------------------------------|----------|-----------------------------------|
+| At-most-once      | Fire and forget, no ack                                | Lowest   | Metrics, non-critical telemetry   |
+| At-least-once     | Producer retries + consumer re-reads                   | Low      | Most business events (+ idempotent consumers) |
+| Exactly-once      | Kafka EOS (transactions) + idempotent producers        | Higher   | Financial transfers, billing      |
+
+> **Rule of thumb**: Use at-least-once delivery + idempotent consumers. Kafka EOS adds significant complexity — only use for financial-grade consistency.
+`
+    },
+
+    // ── 9. DLQ ───────────────────────────────────────────────────────────────
+    {
+      question: 'What is a Dead Letter Queue (DLQ) and how do you design a retry/DLQ strategy?',
+      answerMd: `
+# Dead Letter Queue (DLQ) & Retry Strategy
+
+## 🎯 Why DLQ?
+
+Without a DLQ, a poison-pill message (malformed or unprocessable) blocks the entire topic partition forever — the consumer keeps failing and retrying the same message.
+
+---
+
+## 🔄 Retry & DLQ Flow
+
+\`\`\`
+                    Kafka Topic: order-events
+                            │
+                     Consumer tries
+                            │
+                    ┌───────▼────────┐
+                    │  Process event  │
+                    └───────┬────────┘
+                     Success│       │Failure
+                            │       ▼
+                            │  retry-topic-1 (delay: 5s)
+                            │       │ (retried 3x) → still fails
+                            │       ▼
+                            │  retry-topic-2 (delay: 30s)
+                            │       │ (retried 3x) → still fails
+                            │       ▼
+                            │  retry-topic-3 (delay: 5min)
+                            │       │ (retried 3x) → still fails
+                            │       ▼
+                            │  dead-letter-topic (DLQ)
+                            │       │
+                            │  🔔 Alert + manual review
+\`\`\`
+
+---
+
+## 💻 Spring Kafka — Retry + DLQ Configuration
+
+\`\`\`java
+@Configuration
+public class KafkaConsumerConfig {
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory(
+            ConsumerFactory<String, Object> consumerFactory,
+            KafkaTemplate<String, Object> kafkaTemplate) {
+
+        ConcurrentKafkaListenerContainerFactory<String, Object> factory =
+            new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory);
+
+        // Exponential backoff retry: 1s → 2s → 4s (max 3 attempts)
+        ExponentialBackOffWithMaxRetries backoff = new ExponentialBackOffWithMaxRetries(3);
+        backoff.setInitialInterval(1000);
+        backoff.setMultiplier(2.0);
+        backoff.setMaxInterval(30000);
+
+        // After retries exhausted → publish to DLQ
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
+            kafkaTemplate,
+            (record, ex) -> new TopicPartition(record.topic() + ".DLQ", record.partition())
+        );
+
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, backoff);
+        
+        // Don't retry non-recoverable exceptions (validation errors, etc.)
+        errorHandler.addNotRetryableExceptions(IllegalArgumentException.class);
+        errorHandler.addNotRetryableExceptions(JsonProcessingException.class);
+        
+        factory.setCommonErrorHandler(errorHandler);
+        return factory;
+    }
+}
+\`\`\`
+
+---
+
+## 🏥 DLQ Consumer — Monitor & Replay
+
+\`\`\`java
+@Component
+public class DlqConsumer {
+
+    @KafkaListener(topics = "\${spring.kafka.topics.dlq}", groupId = "dlq-monitor")
+    public void handleDlqMessage(ConsumerRecord<String, Object> record) {
+        // 1. Log for investigation
+        String originalTopic = new String(record.headers().lastHeader("kafka_dlt-original-topic").value());
+        String exception     = new String(record.headers().lastHeader("kafka_dlt-exception-message").value());
+        
+        log.error("DLQ message from topic={}, key={}, error={}", originalTopic, record.key(), exception);
+        
+        // 2. Persist to DB for ops dashboard
+        dlqRepo.save(DlqEntry.from(record, originalTopic, exception));
+        
+        // 3. Alert
+        alertService.notify("DLQ event received from " + originalTopic);
+    }
+}
+
+// Admin API to replay DLQ messages
+@RestController @RequestMapping("/admin/dlq")
+public class DlqAdminController {
+
+    @PostMapping("/{id}/replay")
+    public void replay(@PathVariable Long id) {
+        DlqEntry entry = dlqRepo.findById(id).orElseThrow();
+        kafkaTemplate.send(entry.getOriginalTopic(), entry.getKey(), entry.getPayload());
+        entry.setStatus(DlqStatus.REPLAYED);
+        dlqRepo.save(entry);
+    }
+}
+\`\`\`
+
+---
+
+## 🎛️ DLQ Best Practices
+
+| Practice                       | Reason                                              |
+|--------------------------------|-----------------------------------------------------|
+| Separate DLQ per topic         | Easier to trace which service/flow failed           |
+| Preserve all original headers  | Needed for replay and root cause analysis           |
+| Alert on DLQ growth            | DLQ accumulation = silent backlog of failures       |
+| Never auto-replay blindly      | Understand the root cause first — replay is manual  |
+| Set DLQ retention to 30 days+  | Give ops team time to investigate and remediate     |
+| Classify errors                | Transient (retry) vs permanent (DLQ immediately)    |
+`
+    },
+
+    // ── 10. OBSERVABILITY ─────────────────────────────────────────────────────
+    {
+      question: 'How do you implement Observability (Tracing, Logging, Metrics) in Event-Driven Microservices?',
+      important: true,
+      answerMd: `
+# Observability in Event-Driven Microservices
+
+## 🔭 The Three Pillars
+
+\`\`\`
+          Logs           Metrics           Traces
+       (What happened) (How is it doing) (Why is it slow)
+            │                │                 │
+            ▼                ▼                 ▼
+          ELK            Prometheus         Zipkin/Jaeger
+       (Kibana)           (Grafana)         (Tempo/Jaeger UI)
+\`\`\`
+
+---
+
+## 🔗 Distributed Tracing Across Services
+
+In EDA, a single business operation spans multiple services via Kafka. Tracing must propagate the **trace context** through event headers.
+
+\`\`\`java
+// Producer — inject trace context into Kafka headers
+@Service
+public class OrderEventPublisher {
+
+    @Autowired private KafkaTemplate<String, Object> kafkaTemplate;
+    @Autowired private Tracer tracer;
+
+    public void publish(OrderPlacedEvent event) {
+        ProducerRecord<String, Object> record = new ProducerRecord<>("order-events", event.getOrderId(), event);
+        
+        // Inject OpenTelemetry trace context into headers
+        tracer.inject(
+            tracer.currentSpan().context(),
+            TextMapSetter.of(record.headers()),
+            (headers, key, value) -> headers.add(key, value.getBytes())
+        );
+        
+        kafkaTemplate.send(record);
+    }
+}
+
+// Consumer — extract trace context from headers, continue trace
+@KafkaListener(topics = "order-events")
+public void handleOrderPlaced(ConsumerRecord<String, OrderPlacedEvent> record) {
+    // Extract parent span from headers
+    SpanContext parentContext = tracer.extract(
+        TextMapGetter.of(record.headers()),
+        (headers, key) -> new String(headers.lastHeader(key).value())
+    );
+
+    Span span = tracer.spanBuilder("process-order-placed")
+        .setParent(Context.current().with(parentContext))
+        .startSpan();
+
+    try (Scope scope = span.makeCurrent()) {
+        span.setAttribute("orderId", record.value().getOrderId());
+        paymentService.processPayment(record.value());
+    } finally {
+        span.end();
+    }
+}
+\`\`\`
+
+---
+
+## 📊 Spring Boot Observability Config (Micrometer + OpenTelemetry)
+
+\`\`\`yaml
+# application.yml
+management:
+  tracing:
+    sampling:
+      probability: 1.0   # 100% in dev, 0.1 (10%) in prod
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health, metrics, prometheus, info
+
+# OpenTelemetry exporter
+otel:
+  exporter:
+    otlp:
+      endpoint: http://jaeger:4317
+  resource:
+    attributes:
+      service.name: order-service
+\`\`\`
+
+---
+
+## 📝 Structured Logging with Correlation IDs
+
+\`\`\`java
+@Slf4j
+@KafkaListener(topics = "order-events")
+public void handle(ConsumerRecord<String, OrderPlacedEvent> record) {
+    String traceId = tracer.currentSpan().context().traceId();
+    String correlationId = new String(record.headers().lastHeader("correlationId").value());
+    
+    // MDC — automatically added to every log line
+    MDC.put("traceId", traceId);
+    MDC.put("correlationId", correlationId);
+    MDC.put("orderId", record.value().getOrderId());
+    MDC.put("service", "payment-service");
+    
+    log.info("Processing OrderPlaced event");  
+    // Output: {"traceId":"abc123","correlationId":"req-456","orderId":"order-789","message":"Processing OrderPlaced event"}
+    
+    MDC.clear();
+}
+\`\`\`
+
+---
+
+## 📈 Key Metrics to Monitor
+
+\`\`\`java
+@Component
+public class KafkaMetrics {
+    
+    private final Counter eventsProcessed;
+    private final Counter eventsFailedCounter;
+    private final Timer processingLatency;
+    private final Gauge consumerLag;
+
+    public KafkaMetrics(MeterRegistry registry) {
+        this.eventsProcessed = Counter.builder("kafka.events.processed")
+            .tag("topic", "order-events")
+            .register(registry);
+        
+        this.processingLatency = Timer.builder("kafka.event.processing.latency")
+            .tag("topic", "order-events")
+            .register(registry);
+            
+        // Consumer lag — critical! High lag = backpressure or slow consumer
+        this.consumerLag = Gauge.builder("kafka.consumer.lag", lagProvider, l -> l.getLag("order-service"))
+            .register(registry);
+    }
+}
+\`\`\`
+
+---
+
+## 🚨 Critical Alerts to Set Up
+
+| Alert                             | Threshold              | Action                         |
+|-----------------------------------|------------------------|--------------------------------|
+| Consumer lag > 10,000             | Severity: Warning      | Scale consumers, check slowness|
+| Consumer lag > 100,000            | Severity: Critical     | Immediate page                 |
+| DLQ size > 0                      | Severity: Warning      | Investigate poison pills       |
+| Event processing latency p99 > 5s | Severity: Warning      | Check downstream dependencies  |
+| Producer send failure rate > 1%   | Severity: Critical     | Check broker health            |
+| Rebalance frequency > 5/hr        | Severity: Warning      | Check consumer stability       |
+`
+    },
+
+    // ── 11. SERVICE MESH & NETWORKING ─────────────────────────────────────────
+    {
+      question: 'How do Service Discovery, API Gateway, and Service Mesh fit into Event-Driven Microservices?',
+      answerMd: `
+# Service Discovery, API Gateway & Service Mesh in EDA
+
+## 🏗️ Architecture Overview
+
+\`\`\`
+Client
+  │
+  ▼
+API Gateway (Kong / AWS API GW / Spring Cloud Gateway)
+  │ Routes, Auth, Rate Limiting, SSL termination
+  │
+  ├──► Service A (HTTP/gRPC — synchronous)
+  │        │
+  │        └──► Publishes events to Kafka (async fan-out)
+  │                    │
+  ├──► Service B ◄─────┘ Consumes events
+  │
+  └──► Service C ◄─────── Consumes events
+  
+Service Mesh (Istio / Linkerd) handles:
+  - mTLS between services
+  - Circuit breaking
+  - Load balancing
+  - Observability (service-level metrics)
+\`\`\`
+
+---
+
+## 🔍 Service Discovery Options
+
+### Client-Side Discovery (Eureka / Consul)
+\`\`\`java
+// Spring Cloud + Eureka
+@SpringBootApplication
+@EnableEurekaClient
+public class OrderServiceApplication { ... }
+
+// Feign client — resolves service name via Eureka
+@FeignClient(name = "inventory-service")
+public interface InventoryClient {
+    @GetMapping("/api/inventory/{productId}")
+    InventoryStatus checkStock(@PathVariable String productId);
+}
+\`\`\`
+
+### Server-Side Discovery (Kubernetes + kube-dns) ✅ Modern Standard
+\`\`\`yaml
+# Kubernetes Service — built-in DNS-based discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+spec:
+  selector:
+    app: order-service
+  ports:
+    - port: 8080
+  type: ClusterIP
+# Discoverable as: http://order-service:8080 within cluster
+\`\`\`
+
+---
+
+## 🌐 API Gateway Configuration (Spring Cloud Gateway)
+
+\`\`\`yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: order-service
+          uri: lb://order-service   # lb:// = load-balanced via service registry
+          predicates:
+            - Path=/api/orders/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: orderServiceCB
+                fallbackUri: forward:/fallback/orders
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 200
+            - AddRequestHeader=X-Correlation-Id, #{T(java.util.UUID).randomUUID().toString()}
+\`\`\`
+
+---
+
+## 🔒 Service Mesh (Istio) for EDA
+
+\`\`\`yaml
+# mTLS between services — auto-injected by Istio sidecar
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+spec:
+  mtls:
+    mode: STRICT  # All inter-service calls must use mutual TLS
+
+---
+# Circuit breaker for HTTP calls within EDA (sync parts)
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: inventory-service
+spec:
+  host: inventory-service
+  trafficPolicy:
+    outlierDetection:
+      consecutiveErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+\`\`\`
+
+---
+
+## 🔀 Event-Driven + Sync Hybrid Pattern
+
+\`\`\`
+HTTP (sync):   Client → API Gateway → Service → DB  (immediate response needed)
+Kafka (async): Service → Kafka → Consumer(s)         (downstream work)
+
+Rule of thumb:
+  - Use HTTP/gRPC for: Queries, commands needing immediate response
+  - Use Kafka for:     State change notifications, fan-out, async workflows
+\`\`\`
+`
+    },
+
+    // ── 12. BACKPRESSURE & SCALING ────────────────────────────────────────────
+    {
+      question: 'How do you handle Backpressure, Consumer Lag, and Scaling in Event-Driven systems?',
+      answerMd: `
+# Backpressure, Consumer Lag & Scaling
+
+## 🔍 Understanding Consumer Lag
+
+**Consumer lag** = number of unconsumed messages in a partition. High lag means consumers can't keep up with producers.
+
+\`\`\`
+Kafka Topic Partition 0:
+  Producer writes at: 10,000 msg/sec
+  Consumer reads at:    7,000 msg/sec
+  Lag growing at:       3,000 msg/sec ← PROBLEM
+\`\`\`
+
+---
+
+## 📈 Horizontal Scaling — Consumer Groups
+
+The **max parallelism** = number of partitions. Design partitions for expected peak concurrency.
+
+\`\`\`
+Topic: order-events with 12 partitions
+
+Consumer Group: inventory-service
+  3 consumers × 4 partitions each = 12 partitions covered
+
+Scale-out:
+  6 consumers × 2 partitions each = still 12 covered, double throughput
+  12 consumers × 1 partition each = max parallelism
+
+13 consumers = 1 idle (consumer > partition count is wasteful)
+\`\`\`
+
+\`\`\`java
+// Spring Kafka — concurrency = number of consumer threads
+@Bean
+public ConcurrentKafkaListenerContainerFactory<String, Object> factory() {
+    ConcurrentKafkaListenerContainerFactory<String, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
+    factory.setConcurrency(4);  // 4 threads per instance → 4 partitions handled
+    return factory;
+}
+\`\`\`
+
+---
+
+## 🐳 Kubernetes HPA on Consumer Lag (KEDA)
+
+\`\`\`yaml
+# KEDA — Kubernetes Event-Driven Autoscaler
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: order-consumer-scaler
+spec:
+  scaleTargetRef:
+    name: order-consumer-deployment
+  minReplicaCount: 2
+  maxReplicaCount: 12     # Max = num partitions
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka:9092
+        consumerGroup: inventory-service
+        topic: order-events
+        lagThreshold: "1000"   # Scale up if lag > 1000 per partition
+\`\`\`
+
+---
+
+## 🛡️ Backpressure Handling in Consumers
+
+\`\`\`java
+@Configuration
+public class KafkaConsumerConfig {
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, Object> factory() {
+        ConcurrentKafkaListenerContainerFactory<String, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        
+        // Manual offset commit — control when offset is committed
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        
+        // Pause consumer if downstream is overwhelmed
+        factory.getContainerProperties().setIdleBetweenPolls(500);  // ms between polls
+        
+        // Limit records per poll to avoid overwhelming downstream
+        // Set in consumer properties:
+        // max.poll.records = 100 (batch size per poll)
+        // max.poll.interval.ms = 300000 (5min max processing time)
+        
+        return factory;
+    }
+}
+
+// Manual pause/resume based on downstream health
+@Component
+public class BackpressureController {
+    
+    @Autowired private KafkaListenerEndpointRegistry registry;
+    
+    public void pauseConsumer(String listenerId) {
+        registry.getListenerContainer(listenerId).pause();
+        log.warn("Consumer paused — downstream backpressure detected");
+    }
+    
+    public void resumeConsumer(String listenerId) {
+        registry.getListenerContainer(listenerId).resume();
+    }
+}
+\`\`\`
+
+---
+
+## ⚙️ Kafka Performance Tuning Cheatsheet
+
+| Config                    | Value     | Effect                                     |
+|---------------------------|-----------|--------------------------------------------|
+| \`fetch.min.bytes\`       | 1024      | Wait for 1KB before returning — reduces I/O|
+| \`fetch.max.wait.ms\`     | 500       | Max wait for fetch.min.bytes               |
+| \`max.poll.records\`      | 250       | Records per poll — tune for batch processing|
+| \`max.poll.interval.ms\`  | 300000    | Max time between polls before rebalance    |
+| \`session.timeout.ms\`    | 30000     | Heartbeat timeout → rebalance trigger      |
+| \`heartbeat.interval.ms\` | 3000      | Should be < session.timeout / 3            |
+| \`enable.auto.commit\`    | false     | Always manual commit for reliability       |
+`
+    },
+
+    // ── 13. OVERALL ARCHITECTURE BLUEPRINT ───────────────────────────────────
+    {
+      question: 'Draw a complete production-ready Event-Driven Microservices architecture blueprint',
+      important: true,
+      answerMd: `
+# Production-Ready EDA Blueprint
+
+## 🏗️ Full Architecture
+
+\`\`\`
+                    ┌────────────────────────────────────────────────────────────────┐
+                    │                        CLIENT LAYER                            │
+                    │           Web App / Mobile App / Partner APIs                  │
+                    └──────────────────────────┬─────────────────────────────────────┘
+                                               │ HTTPS
+                    ┌──────────────────────────▼─────────────────────────────────────┐
+                    │                      API GATEWAY                               │
+                    │    Kong / AWS API GW / Spring Cloud Gateway                    │
+                    │    Auth (JWT/OAuth2), Rate Limiting, Routing, SSL              │
+                    └────┬──────────────┬───────────────┬────────────────────────────┘
+                         │              │               │
+             ┌───────────▼──┐  ┌────────▼──────┐  ┌────▼────────────┐
+             │ Order Service│  │Customer Service│  │ Product Service  │
+             │  (Producer)  │  │  (Producer &  │  │  (Consumer)      │
+             └───────┬──────┘  │   Consumer)   │  └─────┬────────────┘
+                     │         └───────┬────────┘        │
+                     │                 │                  │
+     ┌───────────────▼─────────────────▼──────────────────▼──────────────┐
+     │                           KAFKA CLUSTER                            │
+     │  Topics: order-events | payment-events | inventory-events | ...    │
+     │  Partitions: 12 | Replication: 3 | Schema Registry (Confluent)     │
+     └───┬──────────────┬───────────────────────┬──────────────────────────┘
+         │              │                        │
+┌────────▼────┐  ┌───────▼─────────┐  ┌──────────▼─────────┐
+│  Payment    │  │  Inventory      │  │  Notification       │
+│  Service    │  │  Service        │  │  Service            │
+│ (Consumer + │  │ (Consumer +     │  │ (Consumer)          │
+│  Producer)  │  │  Producer)      │  │ Email/SMS/Push      │
+└────────┬────┘  └───────┬─────────┘  └────────────────────┘
+         │              │
+         │              │ (Outbox pattern for all writes)
+┌────────▼──────────────▼─────────────────────────────────────────────────┐
+│                          DATA STORES                                     │
+│  Order DB (Postgres)  |  Payment DB (Postgres)  |  Inventory DB (Postgres)│
+│  Product Search (Elasticsearch)  |  Sessions (Redis)  |  Analytics (Clickhouse)│
+└──────────────────────────────────────────────────────────────────────────┘
+         │
+┌────────▼────────────────────────────────────────────────────────────────┐
+│                          OBSERVABILITY STACK                             │
+│  Logs: ELK (Elasticsearch + Logstash + Kibana)                           │
+│  Metrics: Prometheus + Grafana (consumer lag, throughput, latency)       │
+│  Tracing: OpenTelemetry → Jaeger / Tempo                                 │
+│  Alerts: PagerDuty / OpsGenie                                            │
+└──────────────────────────────────────────────────────────────────────────┘
+\`\`\`
+
+---
+
+## ✅ EDA Production Checklist
+
+### Reliability
+- [ ] Outbox pattern for all event publications
+- [ ] Idempotent consumers (processed-events table or upsert logic)
+- [ ] DLQ per topic with alerts
+- [ ] Retry with exponential backoff
+- [ ] Kafka replication factor ≥ 3, min.insync.replicas = 2
+
+### Schema & Contracts
+- [ ] Schema Registry (Avro/Protobuf) for all event types
+- [ ] Backward compatibility enforced (BACKWARD mode)
+- [ ] Event envelope with eventId, correlationId, schemaVersion
+- [ ] Versioned event types for breaking changes (V1, V2)
+
+### Scalability
+- [ ] Partition count set for peak concurrency (12–24 for most services)
+- [ ] KEDA or custom HPA for consumer auto-scaling based on lag
+- [ ] Consumer lag alerts (> 10k = warning, > 100k = critical)
+
+### Observability
+- [ ] Trace context propagated via Kafka headers
+- [ ] MDC-based structured logging with traceId + correlationId
+- [ ] Prometheus metrics: lag, throughput, latency, error rate
+- [ ] Grafana dashboards per topic + per service
+- [ ] Distributed tracing in Jaeger/Zipkin
+
+### Security
+- [ ] Kafka ACLs per service (each service has own credentials)
+- [ ] TLS encryption in transit (Kafka listener SSL)
+- [ ] mTLS between services (Istio or custom cert management)
+- [ ] Secrets in Vault / AWS Secrets Manager (not env vars)
+
+### Operations
+- [ ] Runbook for DLQ investigation and replay
+- [ ] Canary deployment strategy for schema changes
+- [ ] Kafka topic naming convention: \`{domain}.{aggregate}.{eventType}.{version}\`
+- [ ] Regular offset lag review in Grafana
+
+---
+
+## 🏷️ Topic Naming Convention
+
+\`\`\`
+{domain}.{aggregate}.{event-type}.v{version}
+
+Examples:
+  orders.order.placed.v1
+  orders.order.shipped.v1
+  payments.payment.processed.v1
+  inventory.stock.reserved.v1
+  notifications.email.send-requested.v1
+\`\`\`
+`
+    }
+
+  ]
+}
 ];
 
 export default data;

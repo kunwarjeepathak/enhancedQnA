@@ -39,6 +39,7 @@ const categoryIcons: Record<Category, JSX.Element> = {
   java: <Coffee fontSize="small" />,
   systemDesign: <Build fontSize="small" />,
   springBoot: <Nature fontSize="small" />,
+  microservices: <Nature fontSize="small" />,
   cloud: <Cloud fontSize="small" />,
   devOps: <BuildCircle fontSize="small" />,
   kafka: <Send fontSize="small" />,
