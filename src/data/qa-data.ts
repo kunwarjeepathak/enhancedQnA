@@ -7946,6 +7946,674 @@ aws ec2 create-nat-gateway --subnet-id <public-subnet-id> --allocation-id <eip-i
 },
 ]
 },
+// ─────────────────────────────────────────────────────────────────────────────
+// KAFKA — CHEATSHEET (Interview Ready)
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  category: 'kafka',
+  title: '📋 Kafka Cheatsheet',
+  subItems: [
+    {
+      question: 'Core Kafka Concepts — Topic, Partition, Offset, Broker',
+      important: true,
+      answerMd: `
+# Core Kafka Concepts
+
+## 🧠 The Big Picture (Plain English)
+Kafka is a **distributed commit log**. Producers write messages; consumers read them at their own pace. Nothing is lost — messages are stored durably.
+
+\`\`\`
+Producer → [Topic: order-events]
+               ├── Partition 0: msg0, msg1, msg2 ...
+               ├── Partition 1: msg0, msg1, msg2 ...
+               └── Partition 2: msg0, msg1, msg2 ...
+                        ↑ offset
+Consumer Group A reads independently of Consumer Group B
+\`\`\`
+
+---
+
+## 📦 Key Building Blocks
+
+| Concept | What it is | Analogy |
+|---------|-----------|---------|
+| **Broker** | A Kafka server that stores data | A post office |
+| **Topic** | A named feed / channel | A mailbox label |
+| **Partition** | Ordered, immutable log within a topic | A physical mailbox slot |
+| **Offset** | Position of a message within a partition | Page number in a book |
+| **Producer** | App that writes messages | Letter sender |
+| **Consumer** | App that reads messages | Letter reader |
+| **Consumer Group** | Set of consumers sharing work | A team reading the same inbox |
+| **Replica** | Copy of a partition on another broker | Backup copy |
+| **Leader** | The primary replica serving reads/writes | Active copy |
+| **ISR** | In-Sync Replicas — followers up-to-date with leader | Live backups |
+
+---
+
+## 🔑 Key Rules to Remember
+- A partition is consumed by **exactly one consumer** within a group (no two consumers in same group read the same partition)
+- Messages within a partition are **strictly ordered**; across partitions — no guarantee
+- Offset is **per consumer group** — different groups have independent progress
+- More partitions = more parallelism (up to # of partitions consumers in a group)
+
+---
+
+## ⏱️ Retention
+Messages are kept for a configured time (default **7 days**) regardless of whether they've been consumed. Consumers can replay from any offset.
+
+---
+
+## ✅ Interview Tips
+- "How does Kafka achieve ordering?" → Only within a partition; use same key to route related messages to same partition
+- "Can two consumers in same group read same partition?" → No
+- "What happens if a consumer dies?" → Rebalance — partitions redistributed among remaining consumers
+`
+    },
+    {
+      question: 'Producer Configuration & Delivery Guarantees',
+      important: true,
+      answerMd: `
+# Kafka Producer — Config & Delivery Guarantees
+
+## 🚦 Three Delivery Semantics
+
+| Semantic | Config | Risk |
+|----------|--------|------|
+| **At most once** | \`acks=0\` | Message can be **lost** |
+| **At least once** | \`acks=1\` or \`acks=all\` + retries | Message can be **duplicated** |
+| **Exactly once** | \`acks=all\` + idempotent + transactions | No loss, no duplicates |
+
+---
+
+## ⚙️ Critical Producer Configs
+
+| Config | Recommended | Why |
+|--------|------------|-----|
+| \`acks\` | \`all\` | Wait for all ISR to confirm write |
+| \`retries\` | \`Integer.MAX_VALUE\` | Retry on transient failures |
+| \`enable.idempotence\` | \`true\` | Prevents duplicate messages on retry |
+| \`max.in.flight.requests.per.connection\` | \`5\` (with idempotence) or \`1\` | Ordering guarantee |
+| \`compression.type\` | \`snappy\` or \`lz4\` | Reduce network + disk I/O |
+| \`batch.size\` | \`16384\` (16KB) | Batch messages before sending |
+| \`linger.ms\` | \`5–20\` | Wait a few ms to fill a batch |
+| \`buffer.memory\` | \`33554432\` (32MB) | Total memory for buffering |
+
+---
+
+## 💻 Producer Code (Java)
+\`\`\`java
+Properties props = new Properties();
+props.put("bootstrap.servers", "localhost:9092");
+props.put("key.serializer",   "org.apache.kafka.common.serialization.StringSerializer");
+props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+props.put("acks", "all");
+props.put("enable.idempotence", "true");
+props.put("retries", Integer.MAX_VALUE);
+props.put("linger.ms", 10);
+props.put("compression.type", "snappy");
+
+KafkaProducer<String, String> producer = new KafkaProducer<>(props);
+
+ProducerRecord<String, String> record =
+    new ProducerRecord<>("order-events", "order-123", "{\"status\":\"PLACED\"}");
+
+producer.send(record, (metadata, ex) -> {
+    if (ex != null) log.error("Send failed", ex);
+    else log.info("Sent to partition {} offset {}", metadata.partition(), metadata.offset());
+});
+
+producer.flush();
+producer.close();
+\`\`\`
+
+---
+
+## ✅ Interview Tips
+- \`acks=all\` alone isn't enough — you also need \`min.insync.replicas=2\` on the broker/topic
+- \`enable.idempotence=true\` automatically sets \`acks=all\` and \`retries=MAX\`
+- \`linger.ms\` trades a small latency for higher throughput (batching)
+`
+    },
+    {
+      question: 'Consumer Configuration & Offset Management',
+      important: true,
+      answerMd: `
+# Kafka Consumer — Config & Offset Management
+
+## ⚙️ Critical Consumer Configs
+
+| Config | Recommended | Why |
+|--------|------------|-----|
+| \`group.id\` | Unique per app | Identifies consumer group |
+| \`enable.auto.commit\` | \`false\` | Manual commit = no data loss |
+| \`auto.offset.reset\` | \`earliest\` / \`latest\` | Where to start if no prior offset |
+| \`max.poll.records\` | \`250\` | Records per poll call |
+| \`max.poll.interval.ms\` | \`300000\` | Max processing time before rebalance |
+| \`session.timeout.ms\` | \`30000\` | Heartbeat timeout |
+| \`heartbeat.interval.ms\` | \`3000\` | Should be < session.timeout / 3 |
+| \`fetch.min.bytes\` | \`1024\` | Reduces I/O — waits for 1KB |
+| \`fetch.max.wait.ms\` | \`500\` | Max wait for fetch.min.bytes |
+
+---
+
+## 📍 Offset Commit Strategies
+
+### Auto Commit (Risky)
+\`\`\`java
+props.put("enable.auto.commit", "true");
+props.put("auto.commit.interval.ms", "1000");
+// Commits every 1s — may commit before processing is done → data loss on crash
+\`\`\`
+
+### Manual Commit After Processing (Safe)
+\`\`\`java
+props.put("enable.auto.commit", "false");
+
+while (true) {
+    ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+    for (ConsumerRecord<String, String> record : records) {
+        process(record);  // do your work first
+    }
+    consumer.commitSync(); // then commit — at-least-once guarantee
+}
+\`\`\`
+
+### Manual Commit Per-Partition (Most Precise)
+\`\`\`java
+Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
+for (ConsumerRecord<String, String> record : records) {
+    process(record);
+    offsets.put(
+        new TopicPartition(record.topic(), record.partition()),
+        new OffsetAndMetadata(record.offset() + 1)
+    );
+}
+consumer.commitSync(offsets);
+\`\`\`
+
+---
+
+## 🔄 auto.offset.reset
+| Value | Behaviour |
+|-------|-----------|
+| \`earliest\` | Read from the very beginning of the topic |
+| \`latest\` | Read only new messages from now on |
+| \`none\` | Throw exception if no stored offset found |
+
+---
+
+## ✅ Interview Tips
+- \`commitSync()\` is safe but slower; \`commitAsync()\` is faster but may lose offsets on failure — combine both
+- Offset is committed to \`__consumer_offsets\` internal topic
+- Re-read messages: reset offset to earlier position using \`consumer.seek()\`
+`
+    },
+    {
+      question: 'Partitioning Strategy & Message Ordering',
+      important: true,
+      answerMd: `
+# Partitioning Strategy & Message Ordering
+
+## 🧠 Why Partitioning Matters
+- Partitions = **unit of parallelism**
+- More partitions → more consumers → higher throughput
+- Same key → same partition → **ordered processing**
+
+---
+
+## 📐 How Partitions Are Chosen
+
+### Default (key present)
+\`\`\`
+partition = murmur2(key) % numPartitions
+\`\`\`
+Same key always goes to the same partition ✅
+
+### Default (no key)
+Messages are distributed in a **sticky** round-robin manner — batches go to one partition until full, then rotate.
+
+### Custom Partitioner
+\`\`\`java
+public class RegionPartitioner implements Partitioner {
+    @Override
+    public int partition(String topic, Object key, byte[] keyBytes,
+                         Object value, byte[] valueBytes, Cluster cluster) {
+        int numPartitions = cluster.partitionCountForTopic(topic);
+        String region = ((String) key).split(":")[0]; // e.g. "IN:order-123"
+        return Math.abs(region.hashCode()) % numPartitions;
+    }
+}
+// Register: props.put("partitioner.class", RegionPartitioner.class.getName());
+\`\`\`
+
+---
+
+## 📦 How Many Partitions?
+
+| Factor | Guidance |
+|--------|----------|
+| Target throughput | partitions ≈ total_throughput / single_partition_throughput |
+| Consumer parallelism | # partitions ≥ # consumers in group |
+| Broker capacity | Avoid > 4000 partitions per broker |
+| Over-partitioning risk | More partitions = more overhead (leader elections, file handles) |
+
+---
+
+## 🔑 Ordering Guarantees
+
+| Scenario | Ordering |
+|----------|---------|
+| Same key, same partition | ✅ Strictly ordered |
+| Different partitions | ❌ No ordering |
+| \`max.in.flight=1\` | ✅ Ordered even without idempotence |
+| Idempotent producer (\`max.in.flight≤5\`) | ✅ Ordered with retries |
+
+---
+
+## ✅ Interview Tips
+- "How do you ensure all events for the same user are processed in order?" → Use **user ID as the message key**
+- Adding partitions later doesn't re-hash existing messages — key routing changes for new messages only
+- Compacted topics keep only the **latest message per key** — useful for CDC / state snapshots
+`
+    },
+    {
+      question: 'Replication, ISR & Fault Tolerance',
+      important: true,
+      answerMd: `
+# Kafka Replication, ISR & Fault Tolerance
+
+## 🧠 What it means (Plain English)
+Every partition has one **Leader** and N-1 **Followers**. Producers/consumers always talk to the Leader. Followers pull data to stay in sync.
+
+\`\`\`
+Topic: order-events, Partition 0, Replication Factor = 3
+
+Broker 1 (Leader)  ←── Producer writes here
+Broker 2 (Follower / ISR)
+Broker 3 (Follower / ISR)
+
+If Broker 1 dies → Broker 2 or 3 becomes new Leader automatically
+\`\`\`
+
+---
+
+## 📋 Key Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Replication Factor** | How many copies of each partition exist |
+| **ISR** (In-Sync Replicas) | Replicas fully caught up with the leader |
+| **HW** (High Watermark) | Highest offset acknowledged by all ISR — consumers can only read up to HW |
+| **LEO** (Log End Offset) | Latest offset written on any replica |
+| **min.insync.replicas** | Minimum ISR count for a write to succeed |
+
+---
+
+## ⚙️ Durability Configuration
+
+\`\`\`properties
+# Broker / Topic level
+replication.factor=3
+min.insync.replicas=2     # Write fails if fewer than 2 replicas are in sync
+
+# Producer level
+acks=all                  # Wait for all ISR to confirm
+\`\`\`
+
+**Formula for no data loss:**
+> \`acks=all\` + \`min.insync.replicas=2\` + \`replication.factor=3\`
+
+This tolerates **1 broker failure** while guaranteeing no data loss.
+
+---
+
+## 🔄 Leader Election
+- Managed by **KRaft** (Kafka 3.x+) or previously **ZooKeeper**
+- New leader is chosen from ISR — guaranteed to have all committed messages
+- Unclean leader election (\`unclean.leader.election.enable=true\`): allows out-of-sync replica to become leader — risks data loss — **keep false in production**
+
+---
+
+## ✅ Interview Tips
+- "What is ISR?" → Replicas that are within \`replica.lag.time.max.ms\` of the leader
+- "What happens if ISR shrinks below min.insync.replicas?" → Producer gets \`NotEnoughReplicasException\`
+- Replication Factor 3 + min.insync.replicas 2 = 1 broker can go down safely
+`
+    },
+    {
+      question: 'Exactly-Once Semantics (EOS) & Idempotent Producer',
+      important: true,
+      answerMd: `
+# Exactly-Once Semantics (EOS)
+
+## 🧠 The Problem
+Retries → duplicates. Network failures → messages re-sent. How do you guarantee each message is processed **exactly once**?
+
+---
+
+## 🔑 Three Layers of EOS
+
+### Layer 1 — Idempotent Producer
+Assigns each message a **Producer ID + Sequence Number**. Broker deduplicates re-sent messages.
+\`\`\`java
+props.put("enable.idempotence", "true"); // sets acks=all, retries=MAX automatically
+\`\`\`
+Guarantees: **no duplicates within a single producer session** (per partition).
+
+### Layer 2 — Transactions (Producer → Multiple Topics)
+Atomically write to multiple topics/partitions — all succeed or all fail.
+\`\`\`java
+props.put("transactional.id", "order-service-txn-1"); // unique per producer instance
+
+producer.initTransactions();
+
+producer.beginTransaction();
+try {
+    producer.send(new ProducerRecord<>("order-events", key, value));
+    producer.send(new ProducerRecord<>("audit-log",    key, audit));
+    producer.commitTransaction();   // atomic commit
+} catch (Exception e) {
+    producer.abortTransaction();    // rollback both
+}
+\`\`\`
+
+### Layer 3 — Consumer: Read Committed
+\`\`\`java
+props.put("isolation.level", "read_committed"); // skip uncommitted / aborted messages
+\`\`\`
+
+---
+
+## 🎯 Full EOS Setup Summary
+
+| Component | Config |
+|-----------|--------|
+| Producer | \`enable.idempotence=true\`, \`transactional.id=<unique>\` |
+| Broker | \`min.insync.replicas=2\`, \`replication.factor=3\` |
+| Consumer | \`isolation.level=read_committed\`, \`enable.auto.commit=false\` |
+
+---
+
+## ✅ Interview Tips
+- Idempotence alone ≠ exactly-once end-to-end; you need transactions + \`read_committed\` consumer
+- \`transactional.id\` must be **stable and unique** per producer instance — use app name + partition/shard ID
+- Kafka Streams achieves EOS internally via \`processing.guarantee=exactly_once_v2\`
+`
+    },
+    {
+      question: 'Consumer Group Rebalancing',
+      answerMd: `
+# Consumer Group Rebalancing
+
+## 🧠 What it means (Plain English)
+When the group membership changes (consumer joins, leaves, or crashes), Kafka **redistributes partitions** among active consumers. During rebalance — **all consumption stops** (stop-the-world).
+
+---
+
+## 🔄 When Rebalance Triggers
+
+| Trigger | Cause |
+|---------|-------|
+| Consumer joins | New instance starts |
+| Consumer leaves | Graceful shutdown |
+| Consumer crashes | \`session.timeout.ms\` expires |
+| Heartbeat missed | Consumer too slow → \`max.poll.interval.ms\` exceeded |
+| Partition count changes | Topic scaled up |
+
+---
+
+## 🔀 Partition Assignment Strategies
+
+| Strategy | Behaviour | Best For |
+|----------|-----------|---------|
+| **RangeAssignor** (default) | Partitions assigned in ranges per topic | Single-topic consumers |
+| **RoundRobinAssignor** | Even round-robin across all partitions | Multi-topic, uniform load |
+| **StickyAssignor** | Minimises partition movement on rebalance | Stateful consumers |
+| **CooperativeStickyAssignor** | Incremental rebalance — no stop-the-world | Production recommended |
+
+\`\`\`java
+props.put("partition.assignment.strategy",
+    "org.apache.kafka.clients.consumer.CooperativeStickyAssignor");
+\`\`\`
+
+---
+
+## ⚠️ Avoiding Unnecessary Rebalances
+
+| Problem | Fix |
+|---------|-----|
+| Slow processing triggers max.poll.interval | Increase \`max.poll.interval.ms\` or reduce \`max.poll.records\` |
+| GC pause kills heartbeat | Tune JVM GC; increase \`session.timeout.ms\` |
+| Frequent restarts | Use **static membership** — \`group.instance.id\` |
+
+### Static Membership (prevents rebalance on restart)
+\`\`\`java
+props.put("group.instance.id", "consumer-pod-1"); // unique, stable ID
+// Consumer can rejoin without triggering rebalance (up to session.timeout.ms)
+\`\`\`
+
+---
+
+## ✅ Interview Tips
+- "What's the problem with rebalancing?" → Pause in consumption, potential duplicate processing
+- \`CooperativeStickyAssignor\` is incremental — only reassigns partitions that must move
+- Static membership + \`CooperativeStickyAssignor\` = production best practice for low-disruption deployments
+`
+    },
+    {
+      question: 'Kafka Streams — Real-Time Processing',
+      important: true,
+      answerMd: `
+# Kafka Streams Basics
+
+## 🧠 What it means (Plain English)
+Kafka Streams is a **Java library** (not a separate cluster) for building real-time stream processing apps. Input and output are both Kafka topics.
+
+---
+
+## 🧱 Core Abstractions
+
+| Abstraction | What it is |
+|-------------|-----------|
+| **KStream** | Unbounded stream of records (each record = independent event) |
+| **KTable** | Changelog stream — latest value per key (like a DB table) |
+| **GlobalKTable** | KTable replicated to all instances — used for lookups/joins |
+| **Topology** | The DAG of processing steps |
+| **StateStore** | Local RocksDB store for aggregations / joins |
+
+---
+
+## 💻 Example — Word Count
+\`\`\`java
+Properties props = new Properties();
+props.put(StreamsConfig.APPLICATION_ID_CONFIG, "word-count-app");
+props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+
+StreamsBuilder builder = new StreamsBuilder();
+
+KStream<String, String> textLines = builder.stream("text-input");
+
+KTable<String, Long> wordCounts = textLines
+    .flatMapValues(line -> Arrays.asList(line.toLowerCase().split("\\\\s+")))
+    .groupBy((key, word) -> word)
+    .count(Materialized.as("word-count-store"));
+
+wordCounts.toStream().to("word-count-output",
+    Produced.with(Serdes.String(), Serdes.Long()));
+
+KafkaStreams streams = new KafkaStreams(builder.build(), props);
+streams.start();
+Runtime.getRuntime().addShutdownHook(new Thread(streams::close));
+\`\`\`
+
+---
+
+## ⚙️ Key Streams Configs
+
+| Config | Value | Purpose |
+|--------|-------|---------|
+| \`processing.guarantee\` | \`exactly_once_v2\` | EOS end-to-end |
+| \`num.stream.threads\` | \`2–4\` | Parallelism within one instance |
+| \`commit.interval.ms\` | \`100\` | How often to commit state |
+| \`cache.max.bytes.buffering\` | \`10485760\` | State store write buffer |
+
+---
+
+## ✅ Interview Tips
+- Kafka Streams runs **inside your app** — no separate cluster needed (unlike Flink/Spark)
+- KTable is backed by a compacted changelog topic + local RocksDB
+- For windowed aggregations: \`TimeWindows.ofSizeWithNoGrace(Duration.ofMinutes(5))\`
+- Scaling: add more instances with same \`application.id\` — Kafka auto-distributes partitions
+`
+    },
+    {
+      question: 'Dead Letter Queue (DLQ) & Error Handling',
+      answerMd: `
+# Dead Letter Queue (DLQ) & Error Handling in Kafka
+
+## 🧠 What it means (Plain English)
+When a consumer **fails to process a message** (bad data, downstream failure), you don't want to block the entire partition forever. Route poison messages to a **DLQ topic** for later inspection.
+
+---
+
+## 🔄 Error Handling Strategies
+
+| Strategy | When to use |
+|----------|-------------|
+| **Retry in-place** | Transient errors (DB timeout, network blip) |
+| **Skip & log** | Unrecoverable bad data — low-value messages |
+| **Dead Letter Queue** | Must-not-lose messages that can't be processed now |
+| **Pause & retry later** | Back-pressure from downstream system |
+
+---
+
+## 💻 DLQ Pattern (Spring Kafka)
+\`\`\`java
+@Bean
+public DefaultErrorHandler errorHandler(KafkaTemplate<String, String> template) {
+    // Retry 3 times with 1s backoff, then send to DLQ
+    ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(3);
+    backOff.setInitialInterval(1000L);
+    backOff.setMultiplier(2.0);
+
+    DeadLetterPublishingRecoverer recoverer =
+        new DeadLetterPublishingRecoverer(template,
+            (record, ex) -> new TopicPartition(record.topic() + ".DLT", record.partition()));
+
+    return new DefaultErrorHandler(recoverer, backOff);
+}
+
+@KafkaListener(topics = "order-events")
+public void consume(String message) {
+    // If this throws after retries → message goes to order-events.DLT
+    orderService.process(message);
+}
+\`\`\`
+
+---
+
+## 📋 DLQ Message Enrichment
+Spring automatically adds headers to DLQ messages:
+| Header | Value |
+|--------|-------|
+| \`kafka_dlt-original-topic\` | Source topic |
+| \`kafka_dlt-original-partition\` | Source partition |
+| \`kafka_dlt-original-offset\` | Source offset |
+| \`kafka_dlt-exception-message\` | Error message |
+
+---
+
+## ✅ Interview Tips
+- DLQ topic naming convention: \`<original-topic>.DLT\` (Dead Letter Topic)
+- Always monitor DLQ size — growing DLQ = systemic processing issue
+- Build a **DLQ reprocessor** service that re-publishes fixed messages back to original topic
+- For idempotent consumers, replaying DLQ messages is safe
+`
+    },
+    {
+      question: 'Kafka Key Interview Questions — Quick Reference',
+      important: true,
+      answerMd: `
+# Kafka Key Interview Questions — Quick Reference
+
+---
+
+## ❓ Architecture
+
+**Q: How does Kafka guarantee message ordering?**
+> Only within a partition. Use the same message key to route related events to the same partition.
+
+**Q: What's the difference between a partition and a topic?**
+> A topic is a logical feed; a partition is the physical, ordered log within a topic. Partitions enable parallelism.
+
+**Q: What is the role of the Consumer Group Coordinator?**
+> A broker elected to manage group membership, trigger rebalances, and track offsets for a group.
+
+**Q: What's the difference between KRaft and ZooKeeper in Kafka?**
+> ZooKeeper was an external dependency for managing cluster metadata. KRaft (Kafka Raft — 2.8+, production-ready 3.3+) moves metadata management inside Kafka itself — simpler ops, faster failover.
+
+---
+
+## ❓ Reliability
+
+**Q: How do you prevent message loss in Kafka?**
+> Producer: \`acks=all\` + \`enable.idempotence=true\`
+> Broker: \`min.insync.replicas=2\`, \`replication.factor=3\`
+> Consumer: \`enable.auto.commit=false\` + manual commit after processing
+
+**Q: What happens if a consumer commits an offset before processing?**
+> If it crashes after commit but before processing, that message is **lost** (at-most-once). Always process first, then commit.
+
+**Q: What is unclean leader election?**
+> Allowing an out-of-ISR replica to become leader. Risks data loss. Always set \`unclean.leader.election.enable=false\` in production.
+
+---
+
+## ❓ Performance
+
+**Q: How do you increase Kafka consumer throughput?**
+> 1. Add more partitions + more consumers (up to partition count)
+> 2. Increase \`fetch.min.bytes\` and \`fetch.max.wait.ms\`
+> 3. Enable compression on producer side
+> 4. Increase \`max.poll.records\`
+> 5. Process in parallel within the consumer (thread pool)
+
+**Q: What is log compaction?**
+> Kafka retains only the **latest message per key** in a compacted topic. Old records for the same key are deleted. Used for event sourcing / CDC / storing latest state.
+
+---
+
+## ❓ Exactly-Once
+
+**Q: How do you achieve exactly-once in Kafka?**
+> Producer: \`enable.idempotence=true\` + \`transactional.id\`
+> Consumer: \`isolation.level=read_committed\`
+> Or use Kafka Streams with \`processing.guarantee=exactly_once_v2\`
+
+**Q: What is the difference between idempotent producer and transactional producer?**
+> Idempotent: deduplicates retries to a **single partition**. Transactional: atomically writes to **multiple partitions/topics** — all or nothing.
+
+---
+
+## 📊 Config Quick-Reference Card
+
+| Goal | Key Config | Value |
+|------|-----------|-------|
+| No data loss | \`acks\` | \`all\` |
+| No duplicates | \`enable.idempotence\` | \`true\` |
+| Durability | \`min.insync.replicas\` | \`2\` |
+| Safe consume | \`enable.auto.commit\` | \`false\` |
+| EOS consume | \`isolation.level\` | \`read_committed\` |
+| Low latency | \`linger.ms\` | \`0–5\` |
+| High throughput | \`linger.ms\` + \`batch.size\` | \`20ms\` + \`64KB\` |
+| Stable group | \`group.instance.id\` | stable unique ID |
+| Smooth rebalance | \`partition.assignment.strategy\` | \`CooperativeStickyAssignor\` |
+`
+    }
+  ]
+},
 {
 category: 'aws',
 title: 'AWS Architecture Key components',
@@ -8918,6 +9586,885 @@ aws glue start-job-run --job-name my-glue-job
 `
 }
 ]
+},
+// ─────────────────────────────────────────────────────────────────────────────
+// AWS — CHEATSHEET (Interview Ready)
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  category: 'aws',
+  title: '☁️ AWS Cheatsheet',
+  subItems: [
+    {
+      question: 'AWS Core Services Map — The Big Picture',
+      important: true,
+      answerMd: `
+# AWS Core Services Map
+
+## 🗺️ Services by Category
+
+| Category | Service | One-line purpose |
+|----------|---------|-----------------|
+| **Compute** | EC2 | Virtual machines in the cloud |
+| | Lambda | Serverless functions — pay per invocation |
+| | ECS | Run Docker containers (AWS-managed orchestration) |
+| | EKS | Managed Kubernetes |
+| | Fargate | Serverless containers — no EC2 to manage |
+| **Storage** | S3 | Object storage — unlimited, durable, cheap |
+| | EBS | Block storage — HDD/SSD attached to EC2 |
+| | EFS | Managed NFS — shared file system across EC2s |
+| | Glacier | Archive storage — very cheap, slow retrieval |
+| **Database** | RDS | Managed relational DB (MySQL, Postgres, Aurora) |
+| | DynamoDB | Serverless NoSQL — key-value + document |
+| | ElastiCache | Managed Redis / Memcached |
+| | Redshift | Managed data warehouse (OLAP) |
+| **Networking** | VPC | Your private network inside AWS |
+| | Route 53 | DNS + health checks + routing policies |
+| | CloudFront | CDN — cache content at edge locations |
+| | ALB/NLB | Load balancers (Application / Network layer) |
+| | API Gateway | Managed HTTP/WebSocket API front door |
+| **Messaging** | SQS | Managed message queue (decoupling) |
+| | SNS | Pub/Sub notifications (fan-out) |
+| | EventBridge | Event bus — route events between services |
+| | Kinesis | Real-time streaming data at scale |
+| **Security** | IAM | Identity & access management |
+| | KMS | Key Management Service — encrypt everything |
+| | Secrets Manager | Store & rotate secrets, passwords, API keys |
+| | WAF | Web Application Firewall |
+| | Shield | DDoS protection |
+| **Observability** | CloudWatch | Metrics, logs, alarms, dashboards |
+| | X-Ray | Distributed tracing |
+| | CloudTrail | Audit log of all API calls |
+| **DevOps** | CodePipeline | CI/CD pipeline |
+| | CloudFormation | Infrastructure as Code (IaC) |
+| | CDK | IaC using real programming languages |
+| | ECR | Docker image registry |
+
+---
+
+## ✅ Interview Tips
+- "Which service for X?" questions are extremely common — memorise this map
+- Aurora = MySQL/Postgres-compatible but AWS-native, 5x faster than standard RDS
+- Fargate = ECS/EKS without managing EC2 nodes — serverless containers
+`
+    },
+    {
+      question: 'EC2 — Instance Types, AMI, Auto Scaling & Load Balancing',
+      important: true,
+      answerMd: `
+# EC2 — Compute Deep Dive
+
+## 🖥️ Instance Families
+
+| Family | Optimised for | Examples | Use Case |
+|--------|--------------|---------|---------|
+| **t** | Burstable CPU | t3.micro, t3.medium | Dev/test, low-traffic apps |
+| **m** | General purpose | m5.large, m6i.xlarge | Web servers, app servers |
+| **c** | Compute | c5.xlarge, c6g.2xlarge | CPU-heavy: encoding, batch |
+| **r** | Memory | r5.large, r6g.4xlarge | In-memory DBs, caches |
+| **p / g** | GPU | p3.2xlarge, g4dn.xlarge | ML training/inference |
+| **i / d** | Storage I/O | i3.xlarge, d3.2xlarge | Databases, data warehouses |
+
+---
+
+## 💰 Pricing Models
+
+| Model | Discount | Commitment | Best For |
+|-------|---------|-----------|---------|
+| **On-Demand** | None | None | Unpredictable workloads |
+| **Reserved** | Up to 72% | 1 or 3 years | Steady-state production |
+| **Savings Plans** | Up to 66% | 1 or 3 years | Flexible (applies to Lambda too) |
+| **Spot** | Up to 90% | None (can be interrupted) | Fault-tolerant, batch jobs |
+| **Dedicated Host** | None | On-demand or reserved | Compliance / licensing |
+
+---
+
+## 📸 AMI (Amazon Machine Image)
+- Pre-built OS + software snapshot — launch identical EC2s from it
+- Types: AWS-provided, AWS Marketplace, custom (your own)
+- Region-specific — copy AMI across regions for DR
+
+---
+
+## 🔄 Auto Scaling Group (ASG)
+\`\`\`
+Min size: 2  |  Desired: 4  |  Max: 10
+
+Scaling Policies:
+├── Target Tracking  → "Keep CPU at 60%"         (recommended)
+├── Step Scaling     → "Add 2 if CPU > 70%"
+└── Scheduled        → "Scale to 10 every Monday 9am"
+\`\`\`
+- Launch Template defines: AMI, instance type, security groups, user data
+- Health checks: EC2 status OR ELB health check (preferred for web apps)
+
+---
+
+## ⚖️ Load Balancers
+
+| Type | Layer | Use Case |
+|------|-------|---------|
+| **ALB** (Application) | L7 HTTP/HTTPS | Path/host-based routing, microservices, gRPC |
+| **NLB** (Network) | L4 TCP/UDP | Ultra-low latency, static IP, gaming, IoT |
+| **CLB** (Classic) | L4/L7 | Legacy — avoid for new apps |
+| **GWLB** (Gateway) | L3 | Route traffic through firewalls/appliances |
+
+---
+
+## ✅ Interview Tips
+- Spot instances can be reclaimed with **2-minute warning** — use for stateless/batch only
+- ALB vs NLB: "HTTP microservices" → ALB; "need static IP or raw TCP" → NLB
+- ASG + ALB + multi-AZ = standard HA pattern for any web app
+- User Data script runs on first boot — use it to install software, configure the instance
+`
+    },
+    {
+      question: 'S3 — Storage Classes, Security & Key Features',
+      important: true,
+      answerMd: `
+# Amazon S3 — Object Storage
+
+## 🗄️ Storage Classes
+
+| Class | Availability | Retrieval | Cost | Use Case |
+|-------|-------------|---------|------|---------|
+| **Standard** | 99.99% | Instant | $$$ | Frequently accessed data |
+| **Standard-IA** | 99.9% | Instant | $$ + retrieval fee | Infrequently accessed, critical |
+| **One Zone-IA** | 99.5% | Instant | $ + retrieval fee | Re-creatable infrequent data |
+| **Intelligent-Tiering** | 99.9% | Instant | $$$ monitoring fee | Unknown/changing access patterns |
+| **Glacier Instant** | 99.9% | Milliseconds | $ | Archive, accessed quarterly |
+| **Glacier Flexible** | 99.99% | Minutes–hours | $$ | Long-term archive |
+| **Glacier Deep Archive** | 99.99% | 12–48 hours | ¢ | 7–10 year retention, compliance |
+
+---
+
+## 🔒 Security
+
+| Feature | How |
+|---------|-----|
+| **Bucket Policy** | JSON resource-based policy — controls cross-account and public access |
+| **IAM Policy** | Controls which IAM user/role can access |
+| **ACL** | Legacy — object-level access (prefer bucket policies) |
+| **Block Public Access** | 4 settings — always enable on production buckets |
+| **SSE-S3** | Server-side encryption with AWS-managed keys (default) |
+| **SSE-KMS** | Encryption with your CMK in KMS — audit trail, key control |
+| **SSE-C** | Customer-provided key — AWS doesn't store key |
+| **Pre-signed URL** | Temp URL to upload/download without AWS credentials |
+
+---
+
+## ⚙️ Key Features
+
+**Versioning** — keeps all versions of an object; protects against overwrites/deletes
+
+**Lifecycle Rules** — automate transitions:
+\`\`\`
+Day 0:   Standard
+Day 30:  → Standard-IA
+Day 90:  → Glacier Instant Retrieval
+Day 365: → Glacier Deep Archive
+\`\`\`
+
+**Replication:**
+- CRR (Cross-Region Replication) — DR, compliance, lower latency for global users
+- SRR (Same-Region Replication) — log aggregation, test/prod sync
+
+**Event Notifications** → trigger Lambda / SQS / SNS on object create/delete
+
+**S3 Select** — query CSV/JSON directly with SQL without downloading entire file
+
+---
+
+## ✅ Interview Tips
+- S3 is **11 9s durability** (99.999999999%) — data is replicated across ≥3 AZs automatically
+- Strong **read-after-write consistency** for all operations (since Dec 2020)
+- Max object size: 5TB; use **Multipart Upload** for objects > 100MB
+- Static website hosting: enable on bucket + set index/error document
+- "How do you make S3 fast?" → CloudFront in front of S3 (origin)
+`
+    },
+    {
+      question: 'IAM — Users, Roles, Policies & Best Practices',
+      important: true,
+      answerMd: `
+# IAM — Identity & Access Management
+
+## 🧱 Core Concepts
+
+| Concept | What it is |
+|---------|-----------|
+| **User** | A person or app with long-term credentials (access key + secret) |
+| **Group** | Collection of users — attach policies to group, not individual users |
+| **Role** | Temporary credentials — assumed by services, EC2, Lambda, cross-account |
+| **Policy** | JSON document defining Allow/Deny permissions |
+| **Permission Boundary** | Max permissions a user/role can have — ceiling guard |
+| **SCP** | Service Control Policy — org-level guardrails (AWS Organizations) |
+
+---
+
+## 📋 Policy Types
+
+| Type | Attached to | Use |
+|------|------------|-----|
+| **Managed (AWS)** | Users/Groups/Roles | AWS-maintained, common permissions |
+| **Managed (Customer)** | Users/Groups/Roles | Your reusable policies |
+| **Inline** | Single entity | One-off, tightly coupled |
+| **Resource-based** | Resources (S3, SQS) | Cross-account access |
+| **Session** | Assumed roles | Restrict temporary credentials further |
+
+---
+
+## 📝 Policy Structure
+\`\`\`json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect":    "Allow",
+      "Action":    ["s3:GetObject", "s3:PutObject"],
+      "Resource":  "arn:aws:s3:::my-bucket/*",
+      "Condition": {
+        "StringEquals": { "aws:RequestedRegion": "ap-south-1" }
+      }
+    }
+  ]
+}
+\`\`\`
+
+---
+
+## 🔄 How Role Assumption Works
+\`\`\`
+EC2 instance → assumes Role "EC2-S3-ReadRole"
+                    ↓
+             STS issues temporary credentials
+             (AccessKeyId, SecretAccessKey, SessionToken)
+                    ↓
+             EC2 calls S3 with temp creds (auto-rotated every 15min–1hr)
+\`\`\`
+
+---
+
+## 🛡️ IAM Best Practices
+
+| Practice | Why |
+|----------|-----|
+| Never use root account for daily work | Root has unlimited access — protect with MFA |
+| Use roles for EC2/Lambda (not access keys) | No long-term credentials on instances |
+| Grant **least privilege** | Minimise blast radius |
+| Enable MFA for all users | Prevent credential theft |
+| Rotate access keys regularly | Limit exposure window |
+| Use **IAM Access Analyzer** | Find unintended public/cross-account access |
+| Use **Permission Boundaries** | Safely delegate admin access to dev teams |
+
+---
+
+## ✅ Interview Tips
+- "How does Lambda access S3?" → Attach an execution role with S3 permissions to the Lambda function
+- Trust policy = who CAN assume the role; Permission policy = what the role CAN DO
+- \`sts:AssumeRole\` is the API call to get temporary credentials
+- SCPs don't grant permissions — they only restrict what's possible within an account
+`
+    },
+    {
+      question: 'VPC — Subnets, Routing, Security Groups & NACLs',
+      important: true,
+      answerMd: `
+# VPC — Virtual Private Cloud
+
+## 🏗️ VPC Architecture
+
+\`\`\`
+VPC: 10.0.0.0/16  (your private network in AWS)
+│
+├── AZ ap-south-1a
+│   ├── Public Subnet  10.0.1.0/24  ← has route to Internet Gateway
+│   └── Private Subnet 10.0.2.0/24  ← no direct internet access
+│
+└── AZ ap-south-1b
+    ├── Public Subnet  10.0.3.0/24
+    └── Private Subnet 10.0.4.0/24
+
+Internet Gateway  ← attached to VPC, enables internet for public subnets
+NAT Gateway       ← sits in public subnet, gives private subnet outbound internet
+\`\`\`
+
+---
+
+## 🔀 Routing
+
+| Destination | Target | Meaning |
+|------------|--------|---------|
+| 10.0.0.0/16 | local | All VPC traffic stays local |
+| 0.0.0.0/0 | igw-xxx | Public subnet → internet via IGW |
+| 0.0.0.0/0 | nat-xxx | Private subnet → internet via NAT |
+
+---
+
+## 🔒 Security Groups vs NACLs
+
+| Feature | Security Group | NACL |
+|---------|---------------|------|
+| Level | Instance / ENI | Subnet |
+| State | **Stateful** (return traffic auto-allowed) | **Stateless** (must allow inbound + outbound) |
+| Rules | Allow only | Allow + Deny |
+| Evaluation | All rules evaluated | Rules evaluated in order (lowest number first) |
+| Default | Deny all inbound, allow all outbound | Allow all |
+
+---
+
+## 🔗 VPC Connectivity Options
+
+| Option | Use Case |
+|--------|---------|
+| **VPC Peering** | Connect two VPCs (same/cross-account) — not transitive |
+| **Transit Gateway** | Hub-and-spoke — connect many VPCs + on-premises |
+| **VPN Gateway** | Encrypted tunnel to on-premises over internet |
+| **Direct Connect** | Dedicated private line from on-premises to AWS |
+| **VPC Endpoints** | Private access to AWS services (S3, DynamoDB) without internet |
+| **PrivateLink** | Expose your service privately to other VPCs |
+
+---
+
+## 📦 VPC Endpoints (Critical for Cost & Security)
+\`\`\`
+Without endpoint: EC2 → Internet Gateway → S3  (data transfer cost + public)
+With endpoint:    EC2 → VPC Endpoint    → S3  (free, private, no internet)
+\`\`\`
+- **Gateway Endpoint**: S3 and DynamoDB (free)
+- **Interface Endpoint**: All other services — creates an ENI in your subnet (costs money)
+
+---
+
+## ✅ Interview Tips
+- "What's the difference between SG and NACL?" → SG is stateful + instance-level; NACL is stateless + subnet-level
+- NAT Gateway: private subnet **outbound** internet only (e.g., download patches); NOT for inbound traffic
+- Bastion Host: EC2 in public subnet used to SSH into private EC2 instances
+- VPC CIDR can't overlap with peered VPC — plan IP ranges carefully
+`
+    },
+    {
+      question: 'RDS vs DynamoDB — When to Use Which',
+      important: true,
+      answerMd: `
+# RDS vs DynamoDB
+
+## ⚖️ Side-by-Side Comparison
+
+| Feature | RDS (Aurora/MySQL/Postgres) | DynamoDB |
+|---------|---------------------------|---------|
+| **Type** | Relational (RDBMS) | NoSQL (key-value + document) |
+| **Schema** | Fixed schema, joins, ACID | Flexible schema, no joins |
+| **Scaling** | Vertical (+ read replicas) | Horizontal (auto, unlimited) |
+| **Throughput** | Hundreds of connections | Millions of requests/sec |
+| **Latency** | Low (ms) | Single-digit ms at any scale |
+| **Transactions** | Full ACID | Limited (TransactWriteItems — up to 25 items) |
+| **Query flexibility** | SQL — any query | Only by PK or GSI |
+| **Cost model** | Instance hours | RCU/WCU or on-demand |
+| **Management** | Moderate | Fully serverless |
+
+---
+
+## 🔑 DynamoDB Key Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Partition Key** | Hash key — determines physical partition |
+| **Sort Key** | Range key — enables range queries within partition |
+| **GSI** | Global Secondary Index — query on non-key attributes |
+| **LSI** | Local Secondary Index — alternate sort key (defined at creation) |
+| **RCU** | Read Capacity Unit — 1 strongly consistent 4KB read/sec |
+| **WCU** | Write Capacity Unit — 1 1KB write/sec |
+| **DAX** | DynamoDB Accelerator — in-memory cache, microsecond reads |
+| **Streams** | Change log of DynamoDB writes → trigger Lambda |
+| **TTL** | Auto-delete items after a timestamp attribute expires |
+
+---
+
+## 🏆 RDS Aurora Highlights
+- MySQL/Postgres compatible but 5x (MySQL) / 3x (Postgres) faster
+- Storage auto-grows in 10GB increments up to 128TB
+- Up to 15 read replicas with sub-10ms replica lag
+- **Aurora Serverless v2**: auto-scales compute in fractions of ACUs
+- **Global Database**: < 1 second cross-region replication for DR
+
+---
+
+## 📐 When to Choose What
+
+**Choose RDS when:**
+- Complex queries, joins, aggregations
+- Strong ACID compliance needed
+- Existing SQL-based app
+- Financial/banking data
+
+**Choose DynamoDB when:**
+- Massive scale (millions TPS) required
+- Simple access patterns (get/put by key)
+- Serverless architecture
+- Session stores, carts, leaderboards, IoT
+
+---
+
+## ✅ Interview Tips
+- DynamoDB hot partition problem: choose high-cardinality partition key; avoid sequential IDs
+- RDS Multi-AZ: synchronous standby in another AZ — auto-failover in 1–2 min (NOT for read scaling)
+- RDS Read Replicas: asynchronous — for read scaling, NOT failover
+- "Design a session store" → DynamoDB with TTL + DAX
+`
+    },
+    {
+      question: 'Lambda & Serverless — Configuration & Best Practices',
+      answerMd: `
+# AWS Lambda & Serverless
+
+## ⚙️ Lambda Configuration Knobs
+
+| Config | Range | Impact |
+|--------|-------|--------|
+| **Memory** | 128MB – 10,240MB | CPU scales linearly with memory |
+| **Timeout** | 1s – 15 minutes | Max execution time |
+| **Concurrency** | Default 1000/region | Parallel executions |
+| **Reserved Concurrency** | Fixed cap | Prevent one function from consuming all concurrency |
+| **Provisioned Concurrency** | Pre-warmed instances | Eliminates cold starts |
+| **Ephemeral Storage (/tmp)** | 512MB – 10GB | Temp file space during execution |
+
+---
+
+## 🥶 Cold Start Problem
+
+\`\`\`
+Cold Start:  Download code → Start runtime → Init handler → Execute  (~100ms–1s)
+Warm Start:  Execute only                                             (~1–10ms)
+\`\`\`
+
+**Mitigation Strategies:**
+| Strategy | How |
+|----------|-----|
+| Provisioned Concurrency | Pre-warm N instances — best but costs money |
+| Smaller deployment package | Less code to load |
+| Choose faster runtime | Node.js / Python > Java for cold start |
+| Keep Lambda warm (ping) | EventBridge rule every 5min — hacky, avoid |
+| Use Snap Start (Java) | Snapshot initialized execution environment (Java 11+) |
+
+---
+
+## 🔗 Common Event Sources
+
+| Source | Pattern |
+|--------|---------|
+| API Gateway / ALB | Synchronous — returns response |
+| S3 | Async — object created/deleted |
+| SQS | Poll-based — processes batches |
+| SNS | Async — fan-out |
+| EventBridge | Event-driven rules |
+| DynamoDB Streams | React to DB changes |
+| Kinesis | Real-time stream processing |
+| Cognito | Auth triggers |
+
+---
+
+## 📦 Deployment Best Practices
+\`\`\`
+Lambda package size limits:
+├── .zip via console:  50MB compressed
+├── .zip via S3:      250MB uncompressed
+└── Container image:  10GB (use for large ML models)
+\`\`\`
+
+- Use **Lambda Layers** for shared dependencies (e.g., AWS SDK, common utils)
+- Store secrets in **Secrets Manager** or **Parameter Store** — not env vars
+- Use **Lambda Powertools** (Python/Java/TypeScript) for structured logging, tracing, metrics
+- Set **Dead Letter Queue (SQS/SNS)** for failed async invocations
+
+---
+
+## ✅ Interview Tips
+- Lambda is billed per 1ms of execution + number of requests — true pay-per-use
+- Max 15-min timeout — not for long-running tasks; use ECS Fargate / Step Functions instead
+- "How to share code across Lambdas?" → Lambda Layers
+- Step Functions orchestrates Lambda workflows with retries, parallel execution, and state management
+`
+    },
+    {
+      question: 'SQS vs SNS vs EventBridge — Messaging Patterns',
+      important: true,
+      answerMd: `
+# AWS Messaging — SQS vs SNS vs EventBridge
+
+## ⚖️ When to Use What
+
+| | SQS | SNS | EventBridge |
+|-|-----|-----|-------------|
+| **Pattern** | Queue (pull) | Pub/Sub (push) | Event Bus (rule-based routing) |
+| **Consumers** | One consumer group | Many subscribers (fan-out) | Many targets via rules |
+| **Message storage** | Up to 14 days | Not stored | Not stored (archive optional) |
+| **Ordering** | FIFO option | No ordering | No ordering |
+| **Filtering** | No | Subscription filter policy | Rich content-based filtering |
+| **Best for** | Decoupling, rate-limiting workers | Fan-out notifications | Service-to-service events, SaaS events |
+
+---
+
+## 📬 SQS Key Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Visibility Timeout** | Time a message is hidden after being received (default 30s) — prevents double-processing |
+| **Message Retention** | 1 min – 14 days (default 4 days) |
+| **Long Polling** | \`WaitTimeSeconds=20\` — reduces empty responses + cost |
+| **Standard Queue** | At-least-once, best-effort ordering, unlimited throughput |
+| **FIFO Queue** | Exactly-once, strict ordering, 3000 msg/s (with batching) |
+| **DLQ** | Messages that fail N times → sent here for inspection |
+| **Delay Queue** | Delay delivery up to 15 min |
+
+---
+
+## 📣 SNS Key Concepts
+- **Topic** = channel; **Subscription** = endpoint (Lambda, SQS, HTTP, Email, SMS)
+- **Fan-out pattern**: SNS → multiple SQS queues → multiple consumers (each processes independently)
+- **Filter Policy**: subscriber only receives messages matching attribute conditions
+- **FIFO Topics**: ordered, deduplication — only SQS FIFO subscribers
+
+\`\`\`
+             ┌──► SQS (order-processing)   ← fulfillment service
+SNS Topic   ─┤
+(order-placed) └──► SQS (order-analytics)   ← analytics service
+\`\`\`
+
+---
+
+## 🚌 EventBridge Key Concepts
+- **Event Bus**: default (AWS services), custom (your apps), partner (SaaS like Stripe/Datadog)
+- **Rules**: match events by pattern → route to targets
+- **Targets**: Lambda, SQS, SNS, Step Functions, ECS task, API Gateway, etc.
+- **Schema Registry**: auto-discover event schemas + generate code bindings
+- **Pipes**: point-to-point — source (SQS/DynamoDB Stream) → optional filter/enrich → target
+
+---
+
+## ✅ Interview Tips
+- SQS + SNS fan-out: use SNS to publish once, SQS queues buffer for each downstream consumer
+- "How to prevent duplicate processing?" → SQS FIFO + idempotent consumer logic
+- EventBridge vs SNS: EventBridge has richer filtering + 20 targets + SaaS integrations; SNS is simpler fan-out
+- Kinesis vs SQS: Kinesis preserves order per shard + replay; SQS is simpler queue — use Kinesis for ordered streaming data
+`
+    },
+    {
+      question: 'CloudWatch, X-Ray & Observability',
+      answerMd: `
+# AWS Observability — CloudWatch, X-Ray & CloudTrail
+
+## 👁️ Three Pillars
+
+| Pillar | AWS Service | What it gives you |
+|--------|------------|------------------|
+| **Metrics** | CloudWatch Metrics | Numeric time-series data (CPU, latency, errors) |
+| **Logs** | CloudWatch Logs | Raw log output from any service |
+| **Traces** | X-Ray | Request flow across distributed services |
+| **Audit** | CloudTrail | API call history — who did what, when |
+
+---
+
+## 📊 CloudWatch
+
+**Metrics:**
+- Every AWS service publishes metrics automatically (EC2 CPU, Lambda duration, RDS connections)
+- Custom metrics: push with \`PutMetricData\` API or CloudWatch Agent
+- Resolution: standard (1 min) or high-resolution (1 second)
+
+**Alarms:**
+\`\`\`
+Metric: CPUUtilization > 80% for 3 consecutive 5-min periods
+Action: → Scale Out ASG / → SNS notification / → EC2 action (stop/reboot)
+\`\`\`
+
+**Logs Insights** — query logs with SQL-like syntax:
+\`\`\`sql
+fields @timestamp, @message
+| filter @message like /ERROR/
+| stats count(*) as errorCount by bin(5m)
+| sort errorCount desc
+\`\`\`
+
+**Key CloudWatch Concepts:**
+| Concept | Description |
+|---------|-------------|
+| **Namespace** | Container for metrics (e.g., AWS/EC2) |
+| **Dimension** | Key-value filter (e.g., InstanceId=i-xxx) |
+| **Log Group** | Container for log streams |
+| **Log Stream** | Sequence of logs from one source |
+| **Metric Filter** | Extract metrics from log patterns |
+| **Composite Alarm** | AND/OR combination of alarms |
+
+---
+
+## 🔍 X-Ray — Distributed Tracing
+\`\`\`
+Request → API Gateway → Lambda → DynamoDB
+              ↓             ↓         ↓
+           Segment      Subsegment  Subsegment
+           (100ms)        (20ms)      (5ms)
+\`\`\`
+- **Trace**: end-to-end request across services
+- **Segment**: one service's contribution
+- **Subsegment**: calls to downstream (DB, HTTP, AWS SDK)
+- **Sampling**: trace 5% of requests by default (reduce cost)
+- Integrates with Lambda, ECS, EC2, API Gateway, Elastic Beanstalk
+
+---
+
+## 🕵️ CloudTrail
+- Records **every API call** in your account (console, CLI, SDK, services)
+- 90-day event history free; S3 storage for longer retention
+- **CloudTrail Insights**: detect unusual activity (spike in API calls)
+- Use case: "Who deleted that S3 bucket?" → CloudTrail logs the answer
+
+---
+
+## ✅ Interview Tips
+- CloudWatch is for **operational metrics/logs**; X-Ray is for **request tracing** across microservices
+- CloudWatch Logs Insights is serverless and scales automatically — preferred over Kibana for AWS-native apps
+- Always enable CloudTrail in all regions + log to central S3 with MFA delete enabled
+- "How do you alert on error rate?" → CloudWatch Metric Filter on Lambda logs → Alarm → SNS
+`
+    },
+    {
+      question: 'High Availability, Disaster Recovery & Cost Optimization',
+      important: true,
+      answerMd: `
+# HA, DR & Cost Optimization
+
+## 🏗️ High Availability Patterns
+
+### Multi-AZ (Same Region)
+\`\`\`
+Region: ap-south-1
+├── AZ-a: EC2 + RDS Primary   ← active
+└── AZ-b: EC2 + RDS Standby   ← auto-failover in ~60s
+       ↑
+    ALB distributes traffic across both AZs
+\`\`\`
+
+### Multi-Region Active-Passive
+\`\`\`
+ap-south-1 (primary) ──replication──► ap-southeast-1 (DR)
+     ↑                                        ↑
+ Route53 health check → failover routing if primary fails
+\`\`\`
+
+---
+
+## 🔥 DR Strategies (RTO / RPO Tradeoffs)
+
+| Strategy | RTO | RPO | Cost | Description |
+|----------|-----|-----|------|-------------|
+| **Backup & Restore** | Hours | Hours | $ | S3 backups; restore from scratch |
+| **Pilot Light** | 10–30 min | Minutes | $$ | Core infra running (DB); scale on failover |
+| **Warm Standby** | Minutes | Seconds | $$$ | Scaled-down copy running in DR region |
+| **Multi-Site Active-Active** | Seconds | Near-zero | $$$$ | Full capacity in both regions all the time |
+
+---
+
+## 🌐 Route 53 Routing Policies
+
+| Policy | Use Case |
+|--------|---------|
+| **Simple** | Single resource — no health check |
+| **Weighted** | A/B testing, canary deployments (80/20 split) |
+| **Latency** | Route to region with lowest latency for user |
+| **Failover** | Primary + secondary — health-check-based |
+| **Geolocation** | Route by user's country/continent |
+| **Geoproximity** | Route by proximity + bias adjustments (Traffic Flow) |
+| **Multi-value** | Return up to 8 healthy records — basic load balancing |
+
+---
+
+## 💰 Cost Optimization — Top Levers
+
+| Area | Action | Saving |
+|------|--------|--------|
+| EC2 | Switch On-Demand → Reserved/Savings Plans | Up to 72% |
+| EC2 | Use Spot for batch/stateless workloads | Up to 90% |
+| EC2 | Right-size with Compute Optimizer | 20–40% typical |
+| RDS | Use Aurora Serverless for variable load | Pay-per-use |
+| S3 | Lifecycle policies → Glacier for old data | 70–90% on archive |
+| S3 | S3 Intelligent-Tiering for unknown patterns | Auto-optimizes |
+| Lambda | Increase memory → reduce duration (net cheaper) | Up to 30% |
+| Data Transfer | Use VPC Endpoints, same-region resources | Eliminates transfer cost |
+| Idle resources | AWS Trusted Advisor / Cost Explorer | Find waste |
+
+---
+
+## ✅ Interview Tips
+- RTO = Recovery Time Objective (how fast you recover); RPO = Recovery Point Objective (how much data loss is acceptable)
+- Multi-AZ ≠ Multi-Region: Multi-AZ protects against datacenter failure; Multi-Region protects against regional outage
+- Trusted Advisor: security, cost, performance, fault tolerance checks — enable Business/Enterprise support for full checks
+- Savings Plans > Reserved Instances for flexibility (applies to EC2 + Fargate + Lambda automatically)
+`
+    },
+    {
+      question: 'AWS Security — KMS, Secrets Manager, WAF & Shield',
+      answerMd: `
+# AWS Security Essentials
+
+## 🔑 KMS — Key Management Service
+
+| Concept | Description |
+|---------|-------------|
+| **CMK** (Customer Managed Key) | Your own key — full control, audit in CloudTrail |
+| **AWS Managed Key** | AWS creates/manages per-service (e.g., aws/s3) — free |
+| **Data Key** | Generated by KMS, used to encrypt actual data (Envelope Encryption) |
+| **Key Policy** | Resource-based policy on the key — who can use/manage it |
+| **Key Rotation** | Automatic annual rotation for CMKs |
+| **Multi-Region Keys** | Same key material in multiple regions for global apps |
+
+**Envelope Encryption (how it works):**
+\`\`\`
+1. KMS generates Data Key (plaintext + encrypted copy)
+2. Encrypt data with plaintext Data Key locally
+3. Store encrypted data + encrypted Data Key together
+4. Discard plaintext Data Key
+5. To decrypt: KMS decrypts Data Key → use it to decrypt data
+\`\`\`
+
+---
+
+## 🔐 Secrets Manager vs Parameter Store
+
+| | Secrets Manager | Parameter Store |
+|-|----------------|----------------|
+| **Rotation** | Automatic (Lambda-based) | Manual only |
+| **Cost** | $0.40/secret/month | Free (standard tier) |
+| **Secret size** | 64KB | 4KB (standard), 8KB (advanced) |
+| **Best for** | DB passwords, API keys (rotation needed) | Config values, feature flags |
+| **Cross-account** | Yes (resource policy) | No |
+
+---
+
+## 🛡️ WAF — Web Application Firewall
+
+Protects ALB, CloudFront, API Gateway, AppSync from:
+- SQL injection, XSS
+- IP-based blocking/allowlisting
+- Rate limiting (requests per IP per 5 min)
+- Geo-blocking (block countries)
+- AWS Managed Rules: OWASP Top 10, known bad IPs
+
+\`\`\`
+Internet → CloudFront + WAF → ALB → EC2/Lambda
+\`\`\`
+
+---
+
+## 🛡️ Shield — DDoS Protection
+
+| Tier | Cost | Protection |
+|------|------|-----------|
+| **Shield Standard** | Free | Always-on L3/L4 protection for all AWS resources |
+| **Shield Advanced** | $3000/month | L7 protection + 24/7 DDoS response team + cost protection |
+
+---
+
+## 🔍 Security Services Quick Reference
+
+| Service | Purpose |
+|---------|---------|
+| **GuardDuty** | Threat detection — analyzes CloudTrail, VPC Flow Logs, DNS |
+| **Macie** | ML-based PII/sensitive data discovery in S3 |
+| **Inspector** | Automated vulnerability scanning for EC2 + Lambda + ECR |
+| **Security Hub** | Aggregates findings from GuardDuty, Inspector, Macie |
+| **Config** | Track resource configuration changes + compliance rules |
+| **Access Analyzer** | Find unintended public/cross-account access |
+
+---
+
+## ✅ Interview Tips
+- "How do you store DB passwords securely?" → Secrets Manager with auto-rotation; retrieve at runtime via SDK
+- GuardDuty + Security Hub + Config = well-rounded security posture
+- Encryption at rest: enable SSE-KMS on S3/RDS/EBS; at transit: enforce TLS everywhere
+- Zero Trust: use IAM roles everywhere, no hardcoded credentials, VPC Endpoints for private AWS API access
+`
+    },
+    {
+      question: 'AWS Key Interview Questions — Quick Reference',
+      important: true,
+      answerMd: `
+# AWS Key Interview Questions — Quick Reference
+
+---
+
+## ❓ Architecture & Design
+
+**Q: How do you design a highly available 3-tier web app on AWS?**
+> Route 53 (DNS + health checks) → CloudFront (CDN) → ALB (multi-AZ) → EC2 in ASG (multi-AZ private subnets) → RDS Aurora Multi-AZ + ElastiCache
+
+**Q: How do you ensure your app survives an AZ failure?**
+> Deploy in at least 2 AZs. Use ALB (automatically routes away from unhealthy AZ). ASG replaces failed instances. RDS Multi-AZ auto-failovers.
+
+**Q: S3 vs EBS vs EFS — when to use each?**
+> EBS: block storage attached to one EC2 (OS disk, DB files). EFS: shared NFS across multiple EC2s (CMS, shared config). S3: object storage, web assets, backups, data lake.
+
+---
+
+## ❓ Networking
+
+**Q: What's the difference between Security Group and NACL?**
+> SG: stateful, instance-level, allow-only. NACL: stateless, subnet-level, allow+deny. Use SGs as primary control; NACLs for subnet-wide deny rules.
+
+**Q: How does a private EC2 access the internet?**
+> Via NAT Gateway in a public subnet. Private subnet route table: 0.0.0.0/0 → NAT GW.
+
+**Q: How do two VPCs communicate privately?**
+> VPC Peering (1-to-1, non-transitive) or Transit Gateway (hub-and-spoke, transitive).
+
+---
+
+## ❓ Compute
+
+**Q: When would you choose Lambda over EC2?**
+> Lambda: event-driven, short-duration (≤15min), unpredictable traffic, want zero server management. EC2: long-running processes, need full OS control, consistent heavy load.
+
+**Q: How do you handle Lambda cold starts for a latency-sensitive API?**
+> Provisioned Concurrency for critical functions + SnapStart for Java + optimise package size.
+
+---
+
+## ❓ Data & Storage
+
+**Q: When would you use DynamoDB vs RDS?**
+> DynamoDB: known simple access patterns, massive scale, serverless. RDS: complex queries, joins, transactions, existing SQL workload.
+
+**Q: How do you replicate data between regions?**
+> S3: Cross-Region Replication. RDS: Read Replicas or Aurora Global Database. DynamoDB: Global Tables.
+
+---
+
+## ❓ Security
+
+**Q: An EC2 needs to write to S3 — how should it authenticate?**
+> Attach an IAM Role (instance profile) to the EC2. Never use access keys on EC2.
+
+**Q: How do you audit all API activity in your AWS account?**
+> CloudTrail — enable in all regions, store logs in S3 with MFA-delete, alert on sensitive actions via CloudWatch Events.
+
+---
+
+## 📊 Key Numbers to Remember
+
+| Service | Key Limit / Number |
+|---------|-------------------|
+| S3 object max size | 5TB (use Multipart > 100MB) |
+| S3 durability | 11 nines (99.999999999%) |
+| Lambda timeout | 15 minutes max |
+| Lambda memory | 128MB – 10,240MB |
+| SQS message size | 256KB |
+| SQS retention | Up to 14 days |
+| DynamoDB item size | 400KB max |
+| EC2 Spot interruption notice | 2 minutes |
+| RDS Multi-AZ failover | ~60 seconds |
+| CloudFront edge locations | 400+ globally |
+`
+    }
+  ]
 },
 {
 category: 'react',
@@ -20112,8 +21659,3874 @@ Examples:
   notifications.email.send-requested.v1
 \`\`\`
 `
+    },
+
+    // ── CHEATSHEET ────────────────────────────────────────────────────────────
+    {
+      question: '⚡ Advanced Microservices Cheatsheet — Everything in One Place',
+      important: true,
+      answerMd: `
+# ⚡ Advanced Microservices Cheatsheet
+
+> One-stop reference. Every pattern, principle, and trade-off a senior engineer needs to know.
+
+---
+
+## 🧱 1. Core Principles at a Glance
+
+| Principle | What It Means | Why It Matters |
+|-----------|---------------|----------------|
+| **Single Responsibility** | Each service owns exactly one business capability | Reduces blast radius of change |
+| **DB per Service** | No service shares another's database | Eliminates tight coupling at the data layer |
+| **Loose Coupling** | Services interact via contracts (API/events), not internals | Independent deployability |
+| **High Cohesion** | Related logic lives together in one service | Easier to reason about and maintain |
+| **Design for Failure** | Assume any downstream call can fail | Forces resilience patterns (retry, CB, timeout) |
+| **Stateless Services** | No in-memory session state — externalize to Redis/DB | Enables horizontal scaling |
+| **Independently Deployable** | Deploy one service without touching others | Faster release cycles |
+
+---
+
+## 🗣️ 2. Communication Patterns — Quick Decision Guide
+
+\`\`\`
+                 ┌──────────────────────────────────────────────┐
+                 │           HOW DO SERVICES TALK?              │
+                 └──────────────────────────────────────────────┘
+                        │                        │
+               ┌────────▼────────┐    ┌──────────▼──────────┐
+               │   SYNCHRONOUS   │    │    ASYNCHRONOUS      │
+               │  (caller waits) │    │  (fire & forget)     │
+               └────────┬────────┘    └──────────┬───────────┘
+                        │                        │
+          ┌─────────────┴──────┐     ┌───────────┴───────────┐
+          │        │           │     │           │            │
+        REST     gRPC     GraphQL  Kafka    RabbitMQ    AWS SNS/SQS
+\`\`\`
+
+| Use Case | Best Choice | Reason |
+|----------|-------------|--------|
+| Simple CRUD API | REST | Universal, easy tooling |
+| High-perf internal calls | gRPC | Binary proto, bi-directional streaming |
+| Flexible client queries | GraphQL | Clients fetch exactly what they need |
+| High-throughput event stream | Kafka | Durable log, replay, consumer groups |
+| Task queues / RPC | RabbitMQ | Rich routing, FIFO, competing consumers |
+| Cloud-native AWS fan-out | SNS → SQS | Fully managed, zero ops |
+
+---
+
+## 🔍 3. Service Discovery
+
+\`\`\`
+         ┌──────────────┐      1. Register on startup
+         │   Service A  │ ─────────────────────────────► ┌──────────────┐
+         │  (producer)  │                                 │   Registry   │
+         └──────────────┘ ◄──────────── 3. Get address ── │ (Consul/     │
+                                                           │  Eureka/k8s) │
+         ┌──────────────┐      2. Heartbeat to stay alive  └──────────────┘
+         │   Service B  │ ─────────────────────────────►       ▲
+         │  (consumer)  │                                       │
+         └──────────────┘     4. Call Service A directly ───────┘
+\`\`\`
+
+| Pattern | How | Tools |
+|---------|-----|-------|
+| **Client-side discovery** | Client queries registry, picks instance | Eureka + Ribbon |
+| **Server-side discovery** | Load balancer queries registry for client | AWS ALB, Nginx |
+| **DNS-based (k8s)** | Every service gets a DNS name in cluster | Kubernetes Service |
+
+---
+
+## 🛡️ 4. Resilience Patterns
+
+### Circuit Breaker — States
+\`\`\`
+    ┌─────────────────────────────────────────────────────────┐
+    │                                                         │
+    ▼                                                         │
+ CLOSED ──► (failure threshold crossed) ──► OPEN ──► (wait timer) ──► HALF-OPEN
+    ▲                                                         │
+    │                                                         │
+    └──────────────────── (probe succeeds) ───────────────────┘
+\`\`\`
+
+| State | Behaviour |
+|-------|-----------|
+| **CLOSED** | All requests pass through normally |
+| **OPEN** | All requests fail fast — no downstream call made |
+| **HALF-OPEN** | Let one probe request through; success → CLOSED, fail → OPEN |
+
+**Spring Boot (Resilience4j):**
+\`\`\`java
+@CircuitBreaker(name = "orderService", fallbackMethod = "fallback")
+public OrderDto getOrder(String id) {
+    return orderClient.getOrder(id);
+}
+
+public OrderDto fallback(String id, Exception ex) {
+    return OrderDto.empty(); // cached / degraded response
+}
+\`\`\`
+
+### Other Resilience Patterns
+
+| Pattern | What it does | When to use |
+|---------|--------------|-------------|
+| **Retry with backoff** | Retry with exponential delay + jitter | Transient network failures |
+| **Timeout** | Fail fast if response exceeds SLA | Prevent thread pool exhaustion |
+| **Bulkhead** | Separate thread pools per downstream | Stop one bad service from killing all threads |
+| **Rate Limiting** | Throttle incoming requests | Protect services from being overwhelmed |
+| **Fallback** | Return cached/default response on failure | Graceful degradation |
+
+---
+
+## 🔄 5. Saga Pattern — Distributed Transactions
+
+> **Problem**: A business transaction spans multiple services — no ACID across services.  
+> **Solution**: Chain of local transactions, each publishing an event. On failure, compensating transactions roll back.
+
+### Choreography vs Orchestration
+
+\`\`\`
+CHOREOGRAPHY (Event-driven, no central brain)
+─────────────────────────────────────────────
+  OrderService ──[OrderPlaced]──► PaymentService ──[PaymentProcessed]──► InventoryService
+                  ◄──[PaymentFailed]──  (auto-compensate: cancel order)
+
+ORCHESTRATION (One coordinator drives the flow)
+─────────────────────────────────────────────────
+                    ┌──────────────────┐
+                    │  Saga Orchestrator│
+                    └──────┬───────────┘
+          ┌────────────────┼────────────────┐
+          ▼                ▼                ▼
+   PaymentService   InventoryService  ShippingService
+\`\`\`
+
+| | Choreography | Orchestration |
+|-|--------------|---------------|
+| **Coupling** | Loose — services only know events | Tighter — orchestrator knows all steps |
+| **Visibility** | Hard to trace full flow | Easy — single orchestrator tracks state |
+| **Complexity** | Grows fast as services increase | Centralized logic is easier to debug |
+| **Tools** | Kafka, RabbitMQ | Temporal, AWS Step Functions, Camunda |
+| **Best for** | Simple 2–3 step flows | Complex long-running workflows |
+
+---
+
+## 📖 6. CQRS + Event Sourcing
+
+\`\`\`
+CQRS (Command Query Responsibility Segregation)
+───────────────────────────────────────────────
+                    ┌────────────────┐
+   Write ──────────►│  Command Model │──► Domain Events ──► Event Store
+                    │  (normalized)  │
+                    └────────────────┘
+                                            │
+                                            ▼
+   Read ───────────►┌────────────────┐◄── Projection / Read Model
+                    │   Query Model  │    (denormalized, optimized)
+                    └────────────────┘
+
+EVENT SOURCING
+──────────────
+  Current State = replay(all past events)
+
+  [AccountCreated] → [MoneyDeposited(100)] → [MoneyWithdrawn(30)]
+                                            → Current Balance: 70
+\`\`\`
+
+| Concept | One-liner |
+|---------|-----------|
+| **Command** | Intent to change state (\`PlaceOrder\`) |
+| **Event** | Fact that happened (\`OrderPlaced\`) |
+| **Projection** | Build a read model by replaying events |
+| **Snapshot** | Periodic state snapshot to avoid replaying from scratch |
+
+---
+
+## 🔐 7. Security Cheatsheet
+
+\`\`\`
+Client ──[JWT]──► API Gateway ──[mTLS]──► Service A ──[mTLS]──► Service B
+                      │
+               Token Validation
+               Rate Limiting
+               Auth/Authz (OAuth2)
+\`\`\`
+
+| Concern | Pattern | Tool |
+|---------|---------|------|
+| **Authentication** | OAuth2 / OIDC — issue JWT tokens | Keycloak, Auth0, AWS Cognito |
+| **Authorization** | RBAC / ABAC claims in JWT payload | Spring Security, OPA |
+| **Service-to-service** | Mutual TLS (mTLS) — both sides present certs | Istio, Linkerd |
+| **Secrets management** | Never hardcode — inject at runtime | HashiCorp Vault, AWS Secrets Manager |
+| **API Gateway security** | Validate token, rate-limit, WAF at the edge | Kong, AWS API Gateway |
+
+**JWT Structure:**
+\`\`\`
+Header.Payload.Signature
+  │       │        └── HMAC-SHA256(base64(header)+"."+base64(payload), secret)
+  │       └── {"sub":"user1","roles":["ADMIN"],"exp":1712345678}
+  └── {"alg":"HS256","typ":"JWT"}
+\`\`\`
+
+---
+
+## 👁️ 8. Observability — The Three Pillars
+
+\`\`\`
+         LOGS              METRICS             TRACES
+         ─────             ───────             ──────
+  What happened?       How is the system?   Why is it slow?
+  Structured JSON      Counters/Gauges/      Distributed span
+  per event            Histograms            across services
+
+  ELK Stack            Prometheus            Jaeger / Zipkin
+  CloudWatch Logs      + Grafana             AWS X-Ray
+\`\`\`
+
+| Pillar | What to Capture | Key Tool |
+|--------|----------------|----------|
+| **Logs** | Request ID, user ID, error stack, latency | ELK, Loki |
+| **Metrics** | p50/p95/p99 latency, error rate, throughput | Prometheus + Grafana |
+| **Traces** | Full request path across services with spans | Jaeger, Zipkin |
+| **Alerting** | SLO breach, error spike, consumer lag | PagerDuty, AlertManager |
+
+**Correlation ID pattern (must-have):**
+\`\`\`java
+// At API Gateway — generate once
+String correlationId = UUID.randomUUID().toString();
+MDC.put("correlationId", correlationId);
+headers.add("X-Correlation-ID", correlationId);
+
+// At each downstream service — propagate
+String correlationId = request.getHeader("X-Correlation-ID");
+MDC.put("correlationId", correlationId); // auto-included in all logs
+\`\`\`
+
+---
+
+## 🏗️ 9. Data Management Patterns
+
+| Pattern | Problem Solved | How |
+|---------|---------------|-----|
+| **DB per Service** | Shared DB creates tight coupling | Each service owns its schema |
+| **API Composition** | Join data across services | Gateway calls multiple services, aggregates |
+| **CQRS Read Model** | Slow join queries across services | Denormalized read DB built from events |
+| **Shared Nothing** | Eliminate hidden dependencies | No shared tables, no shared caches |
+| **Outbox Pattern** | Dual-write (DB + event) atomicity | Write event to outbox table in same DB transaction; relay polls and publishes |
+| **Saga** | Cross-service transaction rollback | Compensating transactions on failure |
+
+---
+
+## 🚀 10. Deployment & Scaling Cheatsheet
+
+\`\`\`
+     ┌─────────────────────────────────────────┐
+     │              Kubernetes Cluster          │
+     │                                          │
+     │  ┌──────────┐  ┌──────────┐  ┌────────┐ │
+     │  │  Pod: A  │  │  Pod: B  │  │ Pod: C │ │
+     │  │(3 replicas)  │(2 replicas)  │ (1 rep) │
+     │  └──────────┘  └──────────┘  └────────┘ │
+     │       │              │            │      │
+     │       └──────────────┴────────────┘      │
+     │                    │                     │
+     │            Service (ClusterIP)            │
+     │                    │                     │
+     │             Ingress / ALB                 │
+     └─────────────────────────────────────────┘
+\`\`\`
+
+| Strategy | What | When |
+|----------|------|------|
+| **Rolling Update** | Replace pods one by one | Zero-downtime default |
+| **Blue/Green** | Full duplicate env, flip traffic | Instant rollback |
+| **Canary** | Route small % to new version | Risk-controlled rollout |
+| **HPA** | Auto-scale pods on CPU/memory/custom metric | Variable load |
+| **VPA** | Auto-adjust CPU/memory requests | Right-sizing |
+
+---
+
+## 📋 11. Pattern Reference Card
+
+| Pattern | Problem | Solution | Trade-off |
+|---------|---------|----------|-----------|
+| **API Gateway** | Clients calling 10+ services | Single entry point handles routing, auth, rate-limit | Single point of failure if not HA |
+| **Service Mesh** | mTLS + observability for every service | Sidecar proxy (Envoy) intercepts all traffic | Operational complexity |
+| **Strangler Fig** | Migrate monolith gradually | Route new features to microservices, old to monolith | Dual maintenance period |
+| **Bulkhead** | One slow service blocks all threads | Isolated thread pool per downstream | More resources, tuning needed |
+| **Sidecar** | Cross-cutting concerns (logging, mTLS) | Deploy helper container alongside service pod | More containers to manage |
+| **Anti-Corruption Layer** | Legacy system integration | Translate legacy contracts to domain models | Extra translation layer |
+| **Backends for Frontends (BFF)** | Mobile vs web need different APIs | Separate gateway per client type | Duplicated gateway logic |
+
+---
+
+## 🚨 12. Top Anti-Patterns to Avoid
+
+| Anti-Pattern | Why Bad | Fix |
+|--------------|---------|-----|
+| **Distributed Monolith** | Services deployed independently but tightly coupled via sync chains | Apply async events; decouple contracts |
+| **Shared Database** | Two services write to same table | DB per service; use events for cross-service sync |
+| **Chatty Services** | Service A calls B 10 times per request | Batch APIs or denormalize data locally |
+| **No Idempotency** | Retry causes duplicate orders/payments | Add idempotency keys on all write endpoints |
+| **Synchronous Saga** | Blocking chain of REST calls for transactions | Use async events with compensating transactions |
+| **God Service** | One service does everything (new monolith) | Split by bounded context (DDD) |
+| **Hardcoded Service URLs** | Services break on IP change | Use service discovery (k8s DNS / Consul) |
+
+---
+
+## 🎯 13. Interview Quick-Fire Answers
+
+| Question | One-liner Answer |
+|----------|-----------------|
+| How do services find each other? | Service registry (Eureka/Consul) or DNS-based discovery (k8s) |
+| How do you handle distributed transactions? | Saga pattern — compensating transactions, no 2PC |
+| How do you prevent cascading failures? | Circuit breaker + bulkhead + timeout |
+| How do you ensure event exactly-once processing? | Idempotency key + deduplication table |
+| How do you trace a request across 10 services? | Distributed tracing with correlation ID (Jaeger/Zipkin) |
+| How do you deploy without downtime? | Rolling update or Blue/Green with health checks |
+| How do you share data between services? | Events (preferred) or API composition — never shared DB |
+| What's the biggest microservices challenge? | Distributed consistency + observability complexity |
+`
     }
 
+  ]
+}
+,
+
+// ─────────────────────────────────────────────
+// AI ENGINEERING
+// ─────────────────────────────────────────────
+{
+  category: 'aiEngineering',
+  title: 'RAG (Retrieval-Augmented Generation)',
+  important: true,
+  subItems: [
+
+    // ── 1. WHAT IS RAG ────────────────────────────────────────────────────────
+    {
+      question: 'What is RAG and why was it introduced? How does it differ from fine-tuning?',
+      important: true,
+      answerMd: `
+# Retrieval-Augmented Generation (RAG) — Core Concepts
+
+## 🔑 What Is RAG?
+RAG is an AI architecture pattern that **grounds LLM responses in external knowledge** by retrieving relevant documents at inference time and injecting them into the prompt. The model generates answers based on both its parametric knowledge and the retrieved context.
+
+\`\`\`
+User Query
+    │
+    ▼
+[Retriever]  ──►  Vector DB / Search Index
+    │                  (fetches top-k docs)
+    │
+    ▼
+[Augmented Prompt]  =  System Prompt + Retrieved Docs + User Query
+    │
+    ▼
+[LLM Generator]  ──►  Grounded Answer
+\`\`\`
+
+---
+
+## 🚫 The Problem RAG Solves
+
+| Problem                        | Without RAG                            | With RAG                                   |
+|--------------------------------|----------------------------------------|--------------------------------------------|
+| Knowledge cutoff               | LLM unaware of post-training events    | Live docs injected at query time           |
+| Hallucination                  | Model fabricates facts confidently     | Model grounds answer in real retrieved text|
+| Domain-specific knowledge      | Generic answers, lacks private data    | Retrieves from internal wikis / DBs        |
+| Transparency / citations       | No source attribution                  | Can cite retrieved chunks                  |
+| Cost of updating knowledge     | Re-training = millions of dollars      | Update the index, no model change needed   |
+
+---
+
+## ⚖️ RAG vs Fine-Tuning
+
+| Dimension          | RAG                                        | Fine-Tuning                                  |
+|--------------------|--------------------------------------------|----------------------------------------------|
+| Knowledge update   | Real-time (update index)                   | Requires re-training                         |
+| Cost               | Low (embedding + vector DB)                | High (GPU hours, labeled data)               |
+| Hallucination risk | Lower (grounded in retrieved docs)         | Still present (baked-in parametric memory)   |
+| Use case fit       | Dynamic, evolving, private knowledge       | Style, tone, task-specific behavior          |
+| Latency            | Adds retrieval latency (~100–500ms)        | No extra latency                             |
+| Data privacy       | Docs stay in your infra                    | Data used in training, harder to revoke      |
+
+> **Rule of thumb**: Use RAG when the knowledge changes frequently or is private. Use fine-tuning when you want to change *how* the model responds (tone, format, reasoning style).
+
+---
+
+## 🧩 RAG Pipeline Components
+
+1. **Document Ingestion** — Load, clean, split documents into chunks
+2. **Embedding Model** — Convert chunks to dense vectors (e.g., \`text-embedding-3-small\`)
+3. **Vector Store** — Index and retrieve embeddings (e.g., Pinecone, Weaviate, pgvector)
+4. **Retriever** — Find top-k semantically similar chunks for a query
+5. **Prompt Assembly** — Combine retrieved context + user query into a prompt
+6. **LLM Generator** — Produce the final grounded answer
+
+---
+
+## ✅ When to Choose RAG
+- Internal knowledge base / company wiki Q&A
+- Legal or compliance document search
+- Customer support over product documentation
+- Real-time news / financial data query
+- Any use case requiring citations or source attribution
+
+## ❌ When RAG Is Not Enough Alone
+- Tasks requiring deep reasoning across hundreds of documents (use long-context models or agent loops)
+- Improving model's reasoning style (use fine-tuning)
+- Ultra-low latency requirements where retrieval adds unacceptable overhead
+`
+    },
+
+    // ── 2. RAG CHUNKING STRATEGIES ────────────────────────────────────────────
+    {
+      question: 'Explain RAG chunking strategies — fixed-size, semantic, hierarchical. What are the trade-offs?',
+      important: true,
+      answerMd: `
+# RAG Chunking Strategies
+
+Chunking is how you split source documents before embedding. **Chunk quality directly determines retrieval quality.**
+
+---
+
+## 1️⃣ Fixed-Size Chunking
+
+Split document every N tokens/characters, optionally with overlap.
+
+\`\`\`python
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=512,       # tokens per chunk
+    chunk_overlap=64,     # overlap to preserve context across boundaries
+    separators=["\\n\\n", "\\n", " ", ""]
+)
+chunks = splitter.split_text(document_text)
+\`\`\`
+
+| ✅ Pros                        | ❌ Cons                                      |
+|-------------------------------|----------------------------------------------|
+| Simple, fast, deterministic   | May cut mid-sentence, losing coherence       |
+| Works for any document type   | Overlap increases index size                 |
+| Easy to tune chunk_size       | No semantic awareness                        |
+
+---
+
+## 2️⃣ Semantic / Sentence-Level Chunking
+
+Group sentences that are semantically related using embedding similarity drops.
+
+\`\`\`python
+# Conceptual: detect semantic boundary when cosine similarity drops
+embeddings = [embed(sentence) for sentence in sentences]
+for i in range(1, len(embeddings)):
+    if cosine_similarity(embeddings[i-1], embeddings[i]) < THRESHOLD:
+        # Start a new chunk here
+        break_points.append(i)
+\`\`\`
+
+| ✅ Pros                              | ❌ Cons                                 |
+|-------------------------------------|----------------------------------------|
+| Chunks align with topic boundaries  | Slower — requires embedding each sentence |
+| Better retrieval precision           | Variable chunk sizes (hard to predict) |
+| Less context bleeding                | Threshold tuning needed                |
+
+---
+
+## 3️⃣ Hierarchical / Parent-Child Chunking
+
+Store small child chunks for precise retrieval; return their larger parent chunk to the LLM for rich context.
+
+\`\`\`
+Document
+  └── Section (Parent chunk — ~2000 tokens)
+        ├── Paragraph A (Child chunk — ~256 tokens) ◄─── retrieved by similarity
+        ├── Paragraph B (Child chunk — ~256 tokens)
+        └── Paragraph C (Child chunk — ~256 tokens)
+
+Retrieval returns child → fetch parent → send parent to LLM
+\`\`\`
+
+| ✅ Pros                                    | ❌ Cons                                   |
+|-------------------------------------------|------------------------------------------|
+| Precise retrieval + rich context          | More complex storage (two collections)   |
+| Avoids losing surrounding context         | Larger prompts to LLM                    |
+| Great for long structured docs (manuals)  | Parent retrieval can introduce noise     |
+
+---
+
+## 4️⃣ Document-Level & Proposition Chunking
+
+| Strategy          | Description                                              | Best For                          |
+|-------------------|----------------------------------------------------------|-----------------------------------|
+| Document-level    | Entire document as one chunk                             | Short docs, summarization tasks   |
+| Proposition chunk | Extract atomic facts ("LLM X supports Y context window") | Fact-heavy Q&A, knowledge graphs  |
+| Sliding window    | Fixed size with large overlap (e.g., 50%)                | Dense technical text              |
+
+---
+
+## 🏆 Chunking Decision Matrix
+
+| Document Type              | Recommended Strategy                    |
+|----------------------------|-----------------------------------------|
+| FAQs / Short articles      | Fixed-size 256–512 tokens               |
+| Legal / compliance docs    | Hierarchical (section → paragraph)      |
+| Research papers            | Semantic chunking + section headers     |
+| Code files                 | Chunk by function/class (AST-based)     |
+| Chat transcripts           | Sliding window with overlap             |
+
+---
+
+## 💡 Golden Rules
+- Always include **metadata** per chunk: \`source\`, \`page\`, \`section_title\`, \`doc_id\`
+- Test retrieval with **representative queries before going live**
+- A chunk_size of **512 tokens with 10% overlap** is a solid baseline for most use cases
+`
+    },
+
+    // ── 3. RETRIEVAL STRATEGIES ───────────────────────────────────────────────
+    {
+      question: 'What are the different retrieval strategies in RAG? Dense vs Sparse vs Hybrid retrieval?',
+      important: true,
+      answerMd: `
+# RAG Retrieval Strategies
+
+Retrieval quality is the single biggest lever for RAG performance. Three main paradigms exist.
+
+---
+
+## 1️⃣ Dense Retrieval (Semantic Search)
+
+Converts query and documents into dense vectors and finds nearest neighbors by cosine similarity.
+
+\`\`\`python
+import openai, numpy as np
+
+query_embedding = openai.embeddings.create(
+    model="text-embedding-3-small",
+    input="What is the refund policy?"
+).data[0].embedding
+
+# Vector DB returns top-k most similar chunks
+results = vector_db.query(vector=query_embedding, top_k=5)
+\`\`\`
+
+| ✅ Pros                               | ❌ Cons                                    |
+|--------------------------------------|-------------------------------------------|
+| Finds semantically similar docs      | Misses exact keyword matches              |
+| Language / synonym aware             | Expensive to index large corpora          |
+| Great for paraphrased queries        | Less interpretable than sparse            |
+
+---
+
+## 2️⃣ Sparse Retrieval (BM25 / TF-IDF)
+
+Classic keyword-based search. Scores documents by term frequency and inverse document frequency.
+
+\`\`\`python
+from rank_bm25 import BM25Okapi
+
+tokenized_corpus = [doc.split() for doc in documents]
+bm25 = BM25Okapi(tokenized_corpus)
+
+query = "refund policy 30 days"
+scores = bm25.get_scores(query.split())
+top_docs = np.argsort(scores)[::-1][:5]
+\`\`\`
+
+| ✅ Pros                               | ❌ Cons                                    |
+|--------------------------------------|-------------------------------------------|
+| Fast and lightweight                 | No semantic understanding                 |
+| Exact keyword matching               | Fails on synonyms / paraphrases           |
+| Highly interpretable                 | Needs text preprocessing (stopwords, etc) |
+
+---
+
+## 3️⃣ Hybrid Retrieval (Dense + Sparse)
+
+Combines both retrieval signals using Reciprocal Rank Fusion (RRF) or weighted scoring. **Best of both worlds.**
+
+\`\`\`python
+def hybrid_retrieve(query, k=5):
+    dense_results  = vector_db.query(embed(query), top_k=20)   # semantic
+    sparse_results = bm25.get_top_n(query.split(), docs, n=20) # keyword
+
+    # Reciprocal Rank Fusion
+    scores = {}
+    for rank, doc in enumerate(dense_results):
+        scores[doc.id] = scores.get(doc.id, 0) + 1 / (60 + rank)
+    for rank, doc in enumerate(sparse_results):
+        scores[doc.id] = scores.get(doc.id, 0) + 1 / (60 + rank)
+
+    return sorted(scores.items(), key=lambda x: -x[1])[:k]
+\`\`\`
+
+---
+
+## 4️⃣ Advanced Retrieval Patterns
+
+### 🔁 Multi-Query Retrieval
+Generate multiple paraphrased versions of the user query → retrieve for each → deduplicate results.
+\`\`\`
+User: "How fast is the API?"
+→ Generated queries:
+  1. "API response time latency"
+  2. "API throughput performance benchmark"
+  3. "How many requests per second does the API support?"
+\`\`\`
+
+### 🔗 HyDE (Hypothetical Document Embeddings)
+Ask the LLM to generate a *hypothetical* answer first, then embed that answer for retrieval. Works well when user queries are vague.
+\`\`\`
+Query: "tell me about rate limits"
+→ LLM generates: "The API supports 1000 requests per minute per API key..."
+→ Embed the generated text → retrieve similar real docs
+\`\`\`
+
+### 🔄 Re-Ranking (Cross-Encoder)
+After initial retrieval, run a cross-encoder model (e.g., \`cross-encoder/ms-marco-MiniLM-L-6-v2\`) that scores query-document pairs for higher precision.
+\`\`\`
+Initial retrieval: top-20 docs
+Cross-encoder re-ranks → final top-5 sent to LLM
+\`\`\`
+
+---
+
+## 📊 Strategy Comparison
+
+| Strategy          | Precision | Recall | Speed  | Best For                         |
+|-------------------|-----------|--------|--------|----------------------------------|
+| Dense only        | High      | High   | Medium | Semantic queries, paraphrases    |
+| Sparse (BM25)     | Medium    | Medium | Fast   | Keyword-heavy, product SKUs, IDs |
+| Hybrid (RRF)      | Highest   | Highest| Medium | Production systems               |
+| Multi-query       | High      | High+  | Slow   | Ambiguous queries                |
+| HyDE              | High      | Medium | Slow   | Vague/short queries              |
+| Re-rank           | Highest   | Same   | Slower | High-precision use cases         |
+
+---
+
+## ✅ Production Recommendation
+\`\`\`
+Hybrid (Dense + BM25) → Re-ranker → Top-5 to LLM
+\`\`\`
+This pipeline is used by enterprise RAG systems at scale (Cohere, Weaviate, Elasticsearch).
+`
+    },
+
+    // ── 4. RAG EVALUATION ─────────────────────────────────────────────────────
+    {
+      question: 'How do you evaluate a RAG system? What metrics matter?',
+      answerMd: `
+# Evaluating a RAG System
+
+RAG evaluation has two distinct dimensions: **retrieval quality** and **generation quality**.
+
+---
+
+## 🎯 The RAGAS Framework (Industry Standard)
+
+RAGAS evaluates 4 core metrics using the LLM itself as a judge:
+
+| Metric                    | What It Measures                                             | Target  |
+|---------------------------|--------------------------------------------------------------|---------|
+| **Faithfulness**          | Is the answer grounded in the retrieved context?             | > 0.85  |
+| **Answer Relevancy**      | Is the answer relevant to the user question?                 | > 0.80  |
+| **Context Precision**     | Are the retrieved chunks actually useful for the answer?     | > 0.75  |
+| **Context Recall**        | Were all relevant docs retrieved? (needs ground truth)       | > 0.75  |
+
+\`\`\`python
+from ragas import evaluate
+from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
+from datasets import Dataset
+
+data = {
+    "question": ["What is the refund policy?"],
+    "answer": ["Refunds are processed within 30 days."],
+    "contexts": [["Our refund window is 30 days from purchase date."]],
+    "ground_truth": ["The refund policy allows returns within 30 days."]
+}
+
+result = evaluate(Dataset.from_dict(data), metrics=[
+    faithfulness, answer_relevancy, context_precision, context_recall
+])
+print(result)
+\`\`\`
+
+---
+
+## 📊 Retrieval-Specific Metrics
+
+| Metric              | Formula                                        | Description                                  |
+|---------------------|------------------------------------------------|----------------------------------------------|
+| Precision@k         | Relevant retrieved / k                         | Of top-k chunks, how many are useful?        |
+| Recall@k            | Relevant retrieved / total relevant            | Did we find all relevant chunks?             |
+| MRR                 | 1/rank of first relevant result                | How quickly do we surface the right doc?     |
+| NDCG                | Discounted cumulative gain                     | Ranking quality across all retrieved docs    |
+
+---
+
+## 🔨 End-to-End Evaluation Pipeline
+
+\`\`\`
+1. Create a golden dataset (100–500 Q&A pairs with ground truth sources)
+2. Run the RAG pipeline on each question
+3. Measure:
+   - Retrieval: did the right chunks come back?
+   - Generation: is the answer faithful to retrieved context?
+4. A/B test chunking strategies, retrieval methods, prompt templates
+5. Automate regression tests in CI/CD
+\`\`\`
+
+---
+
+## 🚨 Common RAG Failures & Fixes
+
+| Failure Mode                    | Symptom                                | Fix                                          |
+|---------------------------------|----------------------------------------|----------------------------------------------|
+| Retrieval miss                  | LLM says "I don't know"               | Improve chunking, add hybrid retrieval       |
+| Context window overflow         | Truncated context, lost info           | Reduce chunk size, use hierarchical chunks   |
+| Hallucination despite context   | LLM ignores retrieved docs             | Stronger system prompt, use smaller context  |
+| Low faithfulness score          | Answer contradicts retrieved docs      | Add explicit "only use provided context" instruction |
+| Slow latency                    | > 3s end-to-end                        | Cache embeddings, async retrieval, smaller models |
+`
+    },
+
+    // ── 5. ADVANCED RAG PATTERNS ──────────────────────────────────────────────
+    {
+      question: 'What are advanced RAG patterns — Agentic RAG, Self-RAG, Corrective RAG?',
+      important: true,
+      answerMd: `
+# Advanced RAG Patterns
+
+Basic RAG has limitations: it retrieves once and trusts the result. Advanced patterns address quality, reasoning, and reliability.
+
+---
+
+## 🤖 1. Agentic RAG
+
+The LLM acts as an agent — it **decides when and what to retrieve**, can retrieve multiple times, and calls tools.
+
+\`\`\`
+User: "Compare Q3 revenue for Product A vs B and suggest if we should expand Product B"
+
+Agent loop:
+  Step 1 → retrieve("Q3 revenue Product A")
+  Step 2 → retrieve("Q3 revenue Product B")
+  Step 3 → retrieve("market expansion criteria")
+  Step 4 → synthesize + generate final answer
+\`\`\`
+
+- Implemented via: **LangGraph**, **LlamaIndex Agents**, **AutoGen**
+- Supports: multi-hop reasoning, conditional retrieval, tool use alongside RAG
+
+---
+
+## 🔁 2. Self-RAG
+
+The model generates **reflection tokens** to decide:
+1. Should I retrieve at all?
+2. Are the retrieved docs relevant?
+3. Is my generated response supported by the context?
+4. Is the overall response useful?
+
+\`\`\`
+Query → [Retrieve?] → YES → Retrieve docs → [Relevant?] → YES
+     → Generate → [Supported?] → YES → [Useful?] → YES → Output
+                              → NO  → Re-retrieve
+\`\`\`
+
+Self-RAG trains the LLM to emit special tokens like \`[Retrieve]\`, \`[IsRel]\`, \`[IsSup]\`, \`[IsUse]\`.
+
+---
+
+## ✅ 3. Corrective RAG (CRAG)
+
+Evaluates retrieved documents and **corrects retrieval** if quality is low before generating:
+
+\`\`\`
+Retrieve docs
+    │
+    ▼
+Evaluate relevance score
+    ├── HIGH   → Use docs directly → Generate
+    ├── LOW    → Trigger web search / fallback retrieval
+    └── MEDIUM → Decompose and filter docs → Generate
+\`\`\`
+
+Adds a lightweight relevance evaluator (small LLM or classifier) before generation.
+
+---
+
+## 🔄 4. RAG Fusion
+
+Generates multiple sub-queries from the original query, retrieves for all, then re-ranks with Reciprocal Rank Fusion.
+
+\`\`\`
+Original query → LLM generates 3-5 variations
+→ Retrieve per variation
+→ RRF merges and re-ranks all results
+→ Top-k final context to LLM
+\`\`\`
+
+---
+
+## 🏗️ 5. Graph RAG
+
+Builds a **knowledge graph** from documents instead of flat chunks. Retrieves based on graph relationships (entities, edges) not just similarity.
+
+\`\`\`
+"Who manages the team that owns the billing service?"
+→ Entity extraction: team, billing service
+→ Graph traversal: billing_service → owned_by → team_X → managed_by → person_Y
+→ Answer: "person_Y"
+\`\`\`
+
+Best for: organizational data, code dependency graphs, knowledge-intensive Q&A.
+
+---
+
+## 📊 Pattern Comparison
+
+| Pattern        | Retrieval Rounds | Complexity | Hallucination Reduction | Best Use Case                    |
+|----------------|-----------------|------------|------------------------|----------------------------------|
+| Naive RAG      | 1               | Low        | Medium                 | Simple Q&A                       |
+| Agentic RAG    | N (dynamic)     | High       | High                   | Multi-step reasoning             |
+| Self-RAG       | Adaptive        | High       | Very High              | Factual accuracy critical        |
+| CRAG           | 1–2             | Medium     | High                   | Unreliable retrieval corpora     |
+| RAG Fusion     | 1 per sub-query | Medium     | Medium-High            | Ambiguous queries                |
+| Graph RAG      | Graph traversal | Very High  | High                   | Relationship-heavy data          |
+`
+    },
+
+    // ── 6. PRODUCTION RAG STACK ───────────────────────────────────────────────
+    {
+      question: 'Design a production-ready RAG pipeline. What does the full stack look like?',
+      important: true,
+      answerMd: `
+# Production-Ready RAG Architecture
+
+## 🏗️ Full Stack Blueprint
+
+\`\`\`
+                    ┌─────────────────────────────────────────────┐
+                    │              CLIENT / API LAYER              │
+                    │   REST API / Chat UI / Slack Bot / SDK       │
+                    └──────────────────────┬──────────────────────┘
+                                           │
+                    ┌──────────────────────▼──────────────────────┐
+                    │              QUERY PROCESSING                │
+                    │  Query rewriting | HyDE | Multi-query gen    │
+                    └──────────────────────┬──────────────────────┘
+                                           │
+              ┌────────────────────────────▼───────────────────────────┐
+              │                    RETRIEVAL LAYER                      │
+              │   ┌─────────────────┐     ┌────────────────────────┐   │
+              │   │  Dense Retrieval│     │  Sparse Retrieval      │   │
+              │   │  (pgvector /    │     │  (Elasticsearch BM25 / │   │
+              │   │   Pinecone /    │ RRF │   OpenSearch)          │   │
+              │   │   Weaviate)     │─────►                        │   │
+              │   └─────────────────┘     └────────────────────────┘   │
+              └──────────────────────────────┬─────────────────────────┘
+                                             │ top-20 candidates
+                    ┌────────────────────────▼────────────────────┐
+                    │            RE-RANKER (optional)              │
+                    │   cross-encoder / Cohere Rerank API          │
+                    │   → narrows to top-5 highest precision       │
+                    └──────────────────────┬──────────────────────┘
+                                           │ top-5 chunks + metadata
+                    ┌──────────────────────▼──────────────────────┐
+                    │            PROMPT ASSEMBLY                   │
+                    │  System prompt + retrieved docs + user query │
+                    └──────────────────────┬──────────────────────┘
+                                           │
+                    ┌──────────────────────▼──────────────────────┐
+                    │               LLM GENERATOR                  │
+                    │   GPT-4o / Claude 3.5 / Gemini / Llama 3    │
+                    └──────────────────────┬──────────────────────┘
+                                           │
+                    ┌──────────────────────▼──────────────────────┐
+                    │          OBSERVABILITY + GUARDRAILS          │
+                    │  Faithfulness check | PII filter | Logging  │
+                    │  LangSmith / Arize / Langfuse tracing        │
+                    └─────────────────────────────────────────────┘
+\`\`\`
+
+---
+
+## 🗂️ Ingestion Pipeline (Offline)
+
+\`\`\`python
+# Step 1: Load documents
+from langchain.document_loaders import PyPDFLoader, WebBaseLoader
+docs = PyPDFLoader("policy.pdf").load()
+
+# Step 2: Chunk
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+chunks = RecursiveCharacterTextSplitter(chunk_size=512, chunk_overlap=64).split_documents(docs)
+
+# Step 3: Embed + Store
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import PGVector
+
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+vector_store = PGVector.from_documents(chunks, embeddings, connection_string=DB_URL)
+\`\`\`
+
+---
+
+## 🔍 Query Pipeline (Online)
+
+\`\`\`python
+from langchain_openai import ChatOpenAI
+from langchain.chains import RetrievalQA
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+retriever = vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 5})
+
+chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    retriever=retriever,
+    return_source_documents=True
+)
+
+result = chain.invoke({"query": "What is the cancellation policy?"})
+print(result["result"])          # Answer
+print(result["source_documents"]) # Citations
+\`\`\`
+
+---
+
+## ✅ Production Checklist
+
+### Retrieval Quality
+- [ ] Hybrid retrieval (dense + BM25) enabled
+- [ ] Re-ranker for high-precision use cases
+- [ ] Metadata filters (date, category, source) to narrow search scope
+- [ ] Chunk overlap set (10–20% of chunk size)
+
+### Generation Quality
+- [ ] System prompt explicitly says "only use provided context"
+- [ ] Citations/sources returned with every answer
+- [ ] Faithfulness guardrail (RAGAS or custom LLM judge)
+
+### Scalability
+- [ ] Async ingestion pipeline (Celery / Kafka)
+- [ ] Embedding cache (Redis) for repeated queries
+- [ ] Vector DB with ANN index (HNSW) for sub-100ms retrieval
+
+### Observability
+- [ ] Trace every query (LangSmith / Langfuse)
+- [ ] Log retrieved chunks + scores per query
+- [ ] Alert on faithfulness score drops below threshold
+- [ ] Evaluation pipeline runs weekly on golden dataset
+
+### Security
+- [ ] Row-level security in vector DB (filter by user/org)
+- [ ] PII detection before storage and before LLM
+- [ ] Input/output guardrails (Llama Guard / Nemo Guardrails)
+`
+    }
+
+  ]
+},
+
+// ─────────────────────────────────────────────
+// AI ENGINEERING — EMBEDDINGS
+// ─────────────────────────────────────────────
+{
+  category: 'aiEngineering',
+  title: 'Embeddings',
+  important: true,
+  subItems: [
+
+    // ── 1. WHAT ARE EMBEDDINGS ────────────────────────────────────────────────
+    {
+      question: 'What are embeddings? How do they work and why are they central to modern AI?',
+      important: true,
+      answerMd: `
+# Embeddings — Core Concepts
+
+## 🔑 What Is an Embedding?
+An embedding is a **dense numerical vector** that represents the semantic meaning of an object (text, image, audio, user, product) in a continuous high-dimensional space. Objects that are semantically similar are placed **close together** in this space.
+
+\`\`\`
+"dog"     → [0.21, -0.54, 0.87, ..., 0.33]   (1536 dimensions)
+"puppy"   → [0.22, -0.52, 0.85, ..., 0.31]   ← close to "dog"
+"invoice" → [-0.81, 0.12, -0.44, ..., 0.91]  ← far from "dog"
+\`\`\`
+
+---
+
+## 🧠 How Are Embeddings Generated?
+
+### Text Embeddings (Transformer-based)
+\`\`\`
+Input text → Tokenizer → Transformer encoder → [CLS] token pooling → Dense vector
+\`\`\`
+
+The model learns during training that similar-meaning texts should have similar vectors via:
+- **Contrastive learning**: pull similar pairs closer, push dissimilar pairs apart
+- **Next sentence prediction** / **Masked language modeling** (BERT-style)
+
+\`\`\`python
+import openai
+
+response = openai.embeddings.create(
+    model="text-embedding-3-small",   # 1536-dim output
+    input="What is the refund policy?"
+)
+vector = response.data[0].embedding  # List of 1536 floats
+\`\`\`
+
+---
+
+## 📐 Key Properties of Embedding Space
+
+| Property               | Description                                                        |
+|------------------------|--------------------------------------------------------------------|
+| Dimensionality         | Typically 256–4096 dims; higher = more expressive but costlier     |
+| Cosine Similarity      | Measures angle between vectors; range [-1, 1], higher = more similar |
+| Dot Product            | Fast alternative if vectors are normalized                         |
+| Euclidean Distance     | L2 distance; works but cosine preferred for NLP                    |
+| Semantic Arithmetic    | king - man + woman ≈ queen (famous Word2Vec example)               |
+
+\`\`\`python
+import numpy as np
+
+def cosine_similarity(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+sim = cosine_similarity(embed("dog"), embed("puppy"))  # ~0.92
+sim = cosine_similarity(embed("dog"), embed("invoice")) # ~0.12
+\`\`\`
+
+---
+
+## 🗂️ Types of Embeddings
+
+| Type                | Model Examples                         | Use Case                               |
+|---------------------|----------------------------------------|----------------------------------------|
+| Text / Sentence     | OpenAI ada-002, BGE-large, E5          | Semantic search, RAG, clustering       |
+| Code                | CodeBERT, text-embedding-3-small       | Code search, duplication detection     |
+| Image               | CLIP (ViT), ResNet                     | Image similarity, multimodal search    |
+| Multimodal          | CLIP, ImageBind                        | Cross-modal search (text ↔ image)      |
+| User/Item (RecSys)  | Collaborative filtering, Two-Tower     | Recommendations, personalization       |
+| Graph               | Node2Vec, GraphSAGE                    | Social network, knowledge graph        |
+
+---
+
+## 🚀 Why Embeddings Are Central to Modern AI
+
+1. **Semantic Search** — Find documents by meaning, not keywords
+2. **RAG** — Retrieve relevant context for LLMs
+3. **Recommendations** — Match users to items via vector proximity
+4. **Anomaly Detection** — Outliers are far from all cluster centroids
+5. **Classification** — Train a simple classifier on top of embeddings
+6. **Clustering** — Group similar documents without labels (k-means on embeddings)
+7. **Deduplication** — Find near-duplicate content by high cosine similarity
+`
+    },
+
+    // ── 2. EMBEDDING MODELS ───────────────────────────────────────────────────
+    {
+      question: 'How do you choose the right embedding model? Compare OpenAI, open-source, and specialized models.',
+      important: true,
+      answerMd: `
+# Choosing the Right Embedding Model
+
+## 🏆 Model Comparison (2024–2025)
+
+| Model                         | Dims  | MTEB Score | Cost          | Best For                               |
+|-------------------------------|-------|-----------|---------------|----------------------------------------|
+| OpenAI text-embedding-3-large | 3072  | 64.6      | $0.13/M tokens| Production, highest accuracy           |
+| OpenAI text-embedding-3-small | 1536  | 62.3      | $0.02/M tokens| Cost-efficient production              |
+| OpenAI ada-002 (legacy)       | 1536  | 61.0      | $0.10/M tokens| Legacy, avoid for new projects         |
+| Cohere embed-v3               | 1024  | 64.5      | $0.10/M tokens| Multilingual, enterprise               |
+| BGE-large-en-v1.5 (OSS)       | 1024  | 63.5      | Free (self-host)| On-prem, privacy-sensitive data       |
+| E5-large-v2 (OSS)             | 1024  | 62.2      | Free (self-host)| General purpose, open-source          |
+| Sentence-BERT (OSS)           | 768   | 58.0      | Free (self-host)| Lightweight, edge deployment          |
+
+> **MTEB** (Massive Text Embedding Benchmark) is the standard leaderboard for embedding models.
+
+---
+
+## 🎯 Decision Framework
+
+\`\`\`
+Is data privacy a hard constraint?
+    YES → Self-hosted OSS (BGE, E5, Sentence-BERT)
+    NO  ↓
+
+Is latency / throughput critical?
+    YES → OpenAI text-embedding-3-small (fast API) or quantized OSS model
+    NO  ↓
+
+Is cost a major concern?
+    YES → text-embedding-3-small or BGE self-hosted
+    NO  ↓
+
+Need multilingual support?
+    YES → Cohere embed-v3 or multilingual-e5-large
+    NO  → OpenAI text-embedding-3-large (best accuracy)
+\`\`\`
+
+---
+
+## 🔧 Using Open-Source Models
+
+\`\`\`python
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("BAAI/bge-large-en-v1.5")
+
+# BGE requires a query prefix for retrieval tasks
+query_embedding = model.encode(
+    "Represent this sentence for searching relevant passages: What is the refund policy?",
+    normalize_embeddings=True
+)
+
+doc_embeddings = model.encode(
+    ["Our refund window is 30 days.", "All sales are final."],
+    normalize_embeddings=True
+)
+
+# Cosine similarity (dot product since normalized)
+scores = query_embedding @ doc_embeddings.T
+\`\`\`
+
+---
+
+## 📏 Dimensionality & Matryoshka Embeddings
+
+OpenAI text-embedding-3 models support **Matryoshka Representation Learning (MRL)** — you can truncate embedding dimensions without major quality loss:
+
+\`\`\`python
+response = openai.embeddings.create(
+    model="text-embedding-3-small",
+    input="example text",
+    dimensions=256  # Truncate from 1536 → 256 dims, 6× smaller index
+)
+\`\`\`
+
+| Dimensions | Index Size Reduction | Quality vs Full |
+|------------|----------------------|-----------------|
+| 1536       | 1×                   | 100%            |
+| 512        | 3×                   | ~97%            |
+| 256        | 6×                   | ~93%            |
+| 64         | 24×                  | ~85%            |
+
+---
+
+## 🌍 Multilingual Embeddings
+
+\`\`\`python
+# For multilingual RAG systems
+model = SentenceTransformer("intfloat/multilingual-e5-large")
+
+# Supports 100+ languages natively
+embeddings = model.encode([
+    "query: What is the return policy?",           # English
+    "query: ¿Cuál es la política de devoluciones?", # Spanish
+    "query: 返品ポリシーは何ですか？"               # Japanese
+])
+# All map to similar vector space → cross-lingual retrieval works!
+\`\`\`
+
+---
+
+## ✅ Production Tips
+
+- **Always normalize embeddings** before storing (unit vectors make cosine similarity = dot product, much faster)
+- **Benchmark on your own data** — MTEB scores may not reflect your domain
+- **Fine-tune embeddings** on domain-specific pairs when out-of-box quality is insufficient
+- **Cache embeddings** for static content (Redis / object store) to avoid re-embedding unchanged documents
+`
+    },
+
+    // ── 3. VECTOR DATABASES ───────────────────────────────────────────────────
+    {
+      question: 'Compare vector databases — Pinecone, Weaviate, pgvector, Chroma, Qdrant. How does ANN indexing work?',
+      important: true,
+      answerMd: `
+# Vector Databases & ANN Indexing
+
+## 🗄️ Vector DB Comparison
+
+| Database     | Type            | ANN Algorithm | Scale          | Best For                              |
+|--------------|-----------------|---------------|----------------|---------------------------------------|
+| **Pinecone** | Managed cloud   | HNSW / IVF    | Billions       | Production, fully managed, zero-ops   |
+| **Weaviate** | OSS + Cloud     | HNSW          | Hundreds of M  | Hybrid search + GraphQL API           |
+| **Qdrant**   | OSS + Cloud     | HNSW          | Hundreds of M  | High performance, Rust-based, flexible|
+| **pgvector** | Postgres ext.   | HNSW / IVFFlat| Tens of M      | Already on Postgres, small-medium scale|
+| **Chroma**   | OSS (local)     | HNSW          | Millions       | Local dev, prototypes, LangChain default|
+| **Milvus**   | OSS + Cloud     | HNSW, IVF-PQ  | Billions       | Large-scale enterprise                |
+| **FAISS**    | Library (Meta)  | IVF-PQ, HNSW  | Unlimited (RAM)| Research, offline batch search        |
+
+---
+
+## 🔍 How ANN (Approximate Nearest Neighbor) Works
+
+Exact nearest neighbor search is O(n×d) — too slow for millions of vectors. ANN trades **tiny accuracy loss** for massive speed gains.
+
+### HNSW (Hierarchical Navigable Small World) — Most Popular
+\`\`\`
+Layer 2 (sparse):   A ─────────────── E
+Layer 1 (medium):   A ──── C ──── E ── G
+Layer 0 (dense):    A─B─C─D─E─F─G─H─I
+
+Search: Start at top layer, greedily navigate to query's neighborhood, descend layers
+\`\`\`
+
+- Build time: O(n log n) | Query time: O(log n) | Recall: 95–99%
+- Parameters: \`ef_construction\` (build quality), \`M\` (connections per node), \`ef\` (search quality)
+
+### IVF (Inverted File Index)
+\`\`\`
+1. Cluster all vectors into k centroids (k-means)
+2. At query time: find nearest nprobe centroids
+3. Only search vectors in those clusters
+\`\`\`
+Faster than HNSW for very large datasets when combined with PQ compression.
+
+---
+
+## 🛠️ pgvector — Postgres as a Vector DB
+
+\`\`\`sql
+-- Enable extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Create table with embedding column
+CREATE TABLE documents (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    embedding vector(1536),
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create HNSW index for fast ANN search
+CREATE INDEX ON documents
+USING hnsw (embedding vector_cosine_ops)
+WITH (m = 16, ef_construction = 64);
+
+-- Semantic search query
+SELECT content, 1 - (embedding <=> $1::vector) AS similarity
+FROM documents
+ORDER BY embedding <=> $1::vector
+LIMIT 5;
+-- <=> = cosine distance | <-> = L2 distance | <#> = inner product
+\`\`\`
+
+---
+
+## 🐍 Qdrant — High-Performance OSS
+
+\`\`\`python
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
+
+client = QdrantClient("localhost", port=6333)
+
+# Create collection
+client.create_collection(
+    collection_name="docs",
+    vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
+)
+
+# Insert vectors with payload (metadata)
+client.upsert("docs", points=[
+    PointStruct(id=1, vector=embedding, payload={"text": "...", "source": "policy.pdf"})
+])
+
+# Search with metadata filter
+results = client.search(
+    collection_name="docs",
+    query_vector=query_embedding,
+    query_filter={"must": [{"key": "source", "match": {"value": "policy.pdf"}}]},
+    limit=5
+)
+\`\`\`
+
+---
+
+## 📊 Choosing a Vector DB
+
+| Scenario                                  | Recommendation                           |
+|-------------------------------------------|------------------------------------------|
+| Already on Postgres, < 10M vectors        | pgvector (simple, no new infra)          |
+| Local dev / prototype                     | Chroma (zero config)                     |
+| Production, want zero ops                 | Pinecone                                 |
+| Production, self-hosted, need control     | Qdrant or Weaviate                       |
+| Need hybrid search (dense + BM25)         | Weaviate or Elasticsearch + dense plugin |
+| Billions of vectors                       | Milvus or Pinecone                       |
+`
+    },
+
+    // ── 4. FINE-TUNING EMBEDDINGS ─────────────────────────────────────────────
+    {
+      question: 'When and how do you fine-tune embedding models? Explain contrastive learning and triplet loss.',
+      answerMd: `
+# Fine-Tuning Embedding Models
+
+## 🎯 When to Fine-Tune?
+
+Out-of-box embedding models are trained on general text. Fine-tuning dramatically improves performance when:
+
+| Signal                                    | Action                                  |
+|-------------------------------------------|-----------------------------------------|
+| Retrieval precision < 70% on your data    | Fine-tune on domain-specific pairs      |
+| Domain vocabulary not in general corpora  | Legal, medical, finance, code           |
+| Cross-lingual retrieval needed            | Fine-tune on translated pairs           |
+| MTEB benchmark doesn't match your quality | Always eval on your own dataset first   |
+
+---
+
+## 🔬 Contrastive Learning — How Models Learn Embeddings
+
+The core idea: **pull similar pairs together, push dissimilar pairs apart** in vector space.
+
+### SimCSE / InfoNCE Loss
+\`\`\`
+Given a batch of (anchor, positive) pairs:
+  anchor   = "What is the refund policy?"
+  positive = "Returns are accepted within 30 days"
+  negatives = all other sentences in the batch (in-batch negatives)
+
+Loss = -log [ exp(sim(anchor, positive)/τ) / Σ exp(sim(anchor, negative_i)/τ) ]
+where τ = temperature hyperparameter (~0.05)
+\`\`\`
+
+The model is forced to make the anchor-positive pair more similar than any anchor-negative pair.
+
+---
+
+## 📐 Triplet Loss
+
+\`\`\`
+Triplet = (Anchor, Positive, Negative)
+  Anchor   = "dog food"
+  Positive = "pet nutrition"  ← should be close
+  Negative = "car engine"     ← should be far
+
+Loss = max(0, d(A,P) - d(A,N) + margin)
+\`\`\`
+
+- If d(A,P) is already much smaller than d(A,N), loss = 0 (nothing to learn)
+- If not, the model updates to push P closer and N farther
+
+---
+
+## 🔧 Fine-Tuning with Sentence Transformers
+
+\`\`\`python
+from sentence_transformers import SentenceTransformer, InputExample, losses
+from torch.utils.data import DataLoader
+
+model = SentenceTransformer("BAAI/bge-base-en-v1.5")
+
+# Training pairs: (query, relevant_document)
+train_examples = [
+    InputExample(texts=["refund policy", "We accept returns within 30 days"], label=1.0),
+    InputExample(texts=["how to cancel", "Cancellations must be made 48hrs in advance"], label=1.0),
+    InputExample(texts=["refund policy", "The weather is sunny today"], label=0.0),
+]
+
+train_loader = DataLoader(train_examples, batch_size=32, shuffle=True)
+train_loss = losses.CosineSimilarityLoss(model)
+
+model.fit(
+    train_objectives=[(train_loader, train_loss)],
+    epochs=3,
+    warmup_steps=100,
+    output_path="./fine-tuned-embeddings"
+)
+\`\`\`
+
+---
+
+## 🤖 Generating Training Data with LLMs (Synthetic)
+
+When you lack labeled pairs, use an LLM to generate them:
+
+\`\`\`python
+import openai
+
+def generate_query_for_passage(passage: str) -> str:
+    response = openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{
+            "role": "user",
+            "content": f"Generate a question that this passage answers:\\n\\n{passage}"
+        }]
+    )
+    return response.choices[0].message.content
+
+# For each document chunk, generate synthetic queries → training pairs
+for chunk in document_chunks:
+    synthetic_query = generate_query_for_passage(chunk)
+    training_pairs.append((synthetic_query, chunk))
+\`\`\`
+
+This technique (from GRIT / Instructor Embeddings) can improve domain-specific retrieval by **20–30%** without any manual labeling.
+
+---
+
+## 📊 Fine-Tuning Checklist
+
+- [ ] Collect minimum 1,000 (query, relevant_passage) pairs for meaningful improvement
+- [ ] Always keep a held-out evaluation set (10–20% of pairs)
+- [ ] Baseline: measure Precision@5 before fine-tuning
+- [ ] Use hard negatives (semantically similar but wrong docs) for stronger training signal
+- [ ] Evaluate on MTEB or your own retrieval benchmark after each epoch
+- [ ] Publish model card with domain, eval results, training procedure
+`
+    },
+
+    // ── 5. EMBEDDING PRODUCTION PATTERNS ─────────────────────────────────────
+    {
+      question: 'What are production patterns for embeddings — batching, caching, versioning, multi-tenancy?',
+      important: true,
+      answerMd: `
+# Production Embedding Patterns
+
+## ⚡ 1. Batch Embedding (Cost & Latency Optimization)
+
+Never embed one document at a time in ingestion pipelines. Batch for throughput.
+
+\`\`\`python
+import openai
+from typing import List
+
+def batch_embed(texts: List[str], batch_size: int = 100) -> List[List[float]]:
+    """Embed texts in batches to stay within API limits."""
+    all_embeddings = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i : i + batch_size]
+        response = openai.embeddings.create(
+            model="text-embedding-3-small",
+            input=batch
+        )
+        all_embeddings.extend([r.embedding for r in response.data])
+    return all_embeddings
+
+# Process 10,000 chunks efficiently
+embeddings = batch_embed(chunks, batch_size=100)  # 100 API calls vs 10,000
+\`\`\`
+
+---
+
+## 💾 2. Embedding Cache (Avoid Re-Embedding Identical Text)
+
+\`\`\`python
+import redis, hashlib, json
+
+r = redis.Redis()
+
+def get_or_create_embedding(text: str) -> List[float]:
+    # Cache key = hash of text + model
+    cache_key = f"embed:{hashlib.sha256(text.encode()).hexdigest()}"
+    
+    cached = r.get(cache_key)
+    if cached:
+        return json.loads(cached)
+    
+    embedding = openai.embeddings.create(
+        model="text-embedding-3-small", input=text
+    ).data[0].embedding
+    
+    r.setex(cache_key, 86400 * 7, json.dumps(embedding))  # TTL: 7 days
+    return embedding
+\`\`\`
+
+Cache hit rates of 40–60% are common in production Q&A systems — significant cost savings.
+
+---
+
+## 🔄 3. Embedding Model Versioning
+
+When you upgrade embedding models, **all existing vectors must be re-embedded** — old and new model vectors are in different spaces and cannot be compared.
+
+\`\`\`python
+# Strategy: Dual-write during migration
+class EmbeddingService:
+    def __init__(self, current_model: str, new_model: str = None):
+        self.current_model = current_model
+        self.new_model = new_model  # Set during migration
+
+    def embed(self, text: str) -> dict:
+        current_vec = embed_with(self.current_model, text)
+        result = {"v1": current_vec}
+        
+        if self.new_model:
+            result["v2"] = embed_with(self.new_model, text)  # Dual-write
+        
+        return result
+
+# Migration steps:
+# 1. Deploy dual-write (write both v1 and v2 vectors)
+# 2. Backfill existing docs with v2 vectors
+# 3. Switch read traffic from v1 → v2 index
+# 4. Deprecate v1 writes
+\`\`\`
+
+---
+
+## 🏢 4. Multi-Tenancy in Vector DBs
+
+Isolate tenants' data within the same vector store:
+
+\`\`\`python
+# Strategy 1: Metadata filter (Qdrant/Pinecone)
+results = qdrant.search(
+    collection_name="documents",
+    query_vector=query_embedding,
+    query_filter={"must": [{"key": "tenant_id", "match": {"value": "tenant_abc"}}]},
+    limit=5
+)
+
+# Strategy 2: Separate namespaces (Pinecone)
+index.upsert(vectors=vectors, namespace="tenant_abc")
+results = index.query(vector=query_vector, namespace="tenant_abc", top_k=5)
+
+# Strategy 3: Separate collections per tenant (strict isolation)
+# Best for compliance/security requirements, but higher operational overhead
+\`\`\`
+
+| Strategy          | Isolation | Ops Overhead | Best For                         |
+|-------------------|-----------|-------------|----------------------------------|
+| Metadata filter   | Soft      | Low         | SaaS with shared index           |
+| Namespaces        | Medium    | Low         | Pinecone, medium isolation       |
+| Separate collections| Hard   | High        | Regulated industries (HIPAA, etc)|
+
+---
+
+## 📊 5. Embedding Drift Detection
+
+Embeddings can drift in quality as domain language evolves. Monitor with:
+
+\`\`\`python
+# Compare embedding similarity distribution over time
+# If mean cosine similarity of retrieved docs drops → model or data drift
+
+def compute_retrieval_quality_score(queries, expected_doc_ids, retriever):
+    hit_count = 0
+    for query, expected_id in zip(queries, expected_doc_ids):
+        results = retriever.retrieve(query, top_k=5)
+        if any(r.id == expected_id for r in results):
+            hit_count += 1
+    return hit_count / len(queries)  # Recall@5
+
+# Run weekly; alert if score drops > 5% vs baseline
+\`\`\`
+
+---
+
+## 🏗️ Embedding Infrastructure Blueprint
+
+\`\`\`
+Document Ingest
+    │
+    ▼
+[Chunking Service]  →  [Embedding Service]  →  [Vector DB]
+     (async)              (batched API)          (pgvector / Qdrant)
+                              │
+                         [Redis Cache]       ←── repeat queries hit cache
+
+Query Flow
+    │
+    ▼
+User Query  →  [Embed Query]  →  [Vector Search]  →  [Re-rank]  →  LLM
+                (cached?)          (ANN HNSW)       (optional)
+\`\`\`
+`
+    }
+
+  ]
+}
+,
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA STRUCTURES — CHEATSHEET (Beginner Friendly)
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  category: 'dsa',
+  title: '🔢 Arrays',
+  subItems: [
+    {
+      question: 'Find duplicates in an array',
+      important: true,
+      answerMd: `
+# Find Duplicates in an Array
+
+## 🧠 What it means (Plain English)
+You have a list of numbers. Find which numbers appear **more than once**.
+
+**Example:** \`[1, 2, 3, 2, 4, 3]\` → Duplicates are \`2\` and \`3\`
+
+---
+
+## 💡 The Simple Idea
+Use a **Set** (a bag that holds unique items).
+- Go through each number one by one.
+- If number is already in the Set → it's a **duplicate!**
+- If not → add it to the Set.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+int[] arr = {1, 2, 3, 2, 4, 3};
+
+Set<Integer> seen = new HashSet<>();
+List<Integer> duplicates = new ArrayList<>();
+
+for (int num : arr) {
+    if (!seen.add(num)) {      // add() returns false if already exists
+        duplicates.add(num);
+    }
+}
+System.out.println(duplicates); // [2, 3]
+\`\`\`
+
+---
+
+## ⏱️ Time & Space Complexity
+| What | How much | Why |
+|------|----------|-----|
+| Time | O(n) | Visit each element once |
+| Space | O(n) | HashSet can store up to n elements |
+
+---
+
+## ✅ Interview Tips
+- Ask: "Can I modify the array?" (If yes, sorting trick works too)
+- Ask: "Are numbers in a range 1..n?" (Then XOR / index trick saves space)
+- Brute force: 2 nested loops → O(n²) — mention it then optimize
+`
+    },
+    {
+      question: 'Two Sum / Three Sum problem',
+      important: true,
+      answerMd: `
+# Two Sum / Three Sum
+
+## 🧠 What it means (Plain English)
+
+**Two Sum:** Given array + a target number, find **2 numbers that add up to target**.
+**Example:** \`[2, 7, 11, 15]\`, target = \`9\` → Answer: \`[2, 7]\` (indices 0, 1)
+
+**Three Sum:** Find **3 numbers that add up to zero**.
+**Example:** \`[-1, 0, 1, 2, -1, -4]\` → \`[-1, -1, 2]\` and \`[-1, 0, 1]\`
+
+---
+
+## 💡 Two Sum — The Simple Idea
+Use a **HashMap** (a dictionary).
+- For each number, check if its "partner" (target - number) is already in the map.
+- If yes → Found it! If no → Store current number in map.
+
+\`\`\`java
+// Two Sum
+int[] nums = {2, 7, 11, 15};
+int target = 9;
+
+Map<Integer, Integer> map = new HashMap<>();
+for (int i = 0; i < nums.length; i++) {
+    int partner = target - nums[i];
+    if (map.containsKey(partner)) {
+        System.out.println("[" + map.get(partner) + ", " + i + "]"); // [0, 1]
+        break;
+    }
+    map.put(nums[i], i);
+}
+\`\`\`
+
+---
+
+## 💡 Three Sum — The Simple Idea
+**Sort** the array, then use **Two Pointers** for each element.
+
+\`\`\`java
+// Three Sum
+int[] nums = {-1, 0, 1, 2, -1, -4};
+Arrays.sort(nums); // [-4, -1, -1, 0, 1, 2]
+
+List<List<Integer>> result = new ArrayList<>();
+for (int i = 0; i < nums.length - 2; i++) {
+    if (i > 0 && nums[i] == nums[i-1]) continue; // skip duplicates
+    int left = i + 1, right = nums.length - 1;
+    while (left < right) {
+        int sum = nums[i] + nums[left] + nums[right];
+        if (sum == 0) {
+            result.add(Arrays.asList(nums[i], nums[left], nums[right]));
+            left++; right--;
+        } else if (sum < 0) left++;
+        else right--;
+    }
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| Problem | Time | Space |
+|---------|------|-------|
+| Two Sum | O(n) | O(n) |
+| Three Sum | O(n²) | O(1) extra |
+
+---
+
+## ✅ Interview Tips
+- Two Sum → **HashMap** is the go-to answer
+- Three Sum → **Sort + Two Pointers**, don't forget to **skip duplicates**
+`
+    },
+    {
+      question: 'Maximum subarray sum (Kadane\'s Algorithm)',
+      important: true,
+      answerMd: `
+# Maximum Subarray Sum — Kadane's Algorithm
+
+## 🧠 What it means (Plain English)
+Given an array of numbers (can be negative), find the **contiguous subarray** with the **largest sum**.
+
+**Example:** \`[-2, 1, -3, 4, -1, 2, 1, -5, 4]\`
+→ Best subarray: \`[4, -1, 2, 1]\` → Sum = **6**
+
+---
+
+## 💡 The Simple Idea (Kadane's)
+Walk through the array. At each step ask:
+> "Is it better to **start fresh** from this number, or **extend** my current running sum?"
+
+Keep track of the best sum seen so far.
+
+\`\`\`
+currentSum = max(num, currentSum + num)
+maxSum     = max(maxSum, currentSum)
+\`\`\`
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+int[] nums = {-2, 1, -3, 4, -1, 2, 1, -5, 4};
+
+int currentSum = nums[0];
+int maxSum = nums[0];
+
+for (int i = 1; i < nums.length; i++) {
+    currentSum = Math.max(nums[i], currentSum + nums[i]);
+    maxSum = Math.max(maxSum, currentSum);
+}
+
+System.out.println(maxSum); // 6
+\`\`\`
+
+---
+
+## 🔍 Step-by-Step Walkthrough
+| Index | Num | currentSum | maxSum |
+|-------|-----|-----------|--------|
+| 0 | -2 | -2 | -2 |
+| 1 | 1 | 1 | 1 |
+| 2 | -3 | -2 | 1 |
+| 3 | 4 | **4** | 4 |
+| 4 | -1 | 3 | 4 |
+| 5 | 2 | 5 | 5 |
+| 6 | 1 | **6** | **6** ✅ |
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) — one pass |
+| Space | O(1) — no extra array |
+
+---
+
+## ✅ Interview Tips
+- This is a **Dynamic Programming** pattern
+- If all numbers are negative → answer is the **least negative** number
+- Interviewer may ask to also **return the subarray** → track start/end indices
+`
+    },
+    {
+      question: 'Rotate an array by k positions',
+      answerMd: `
+# Rotate an Array by K Positions
+
+## 🧠 What it means (Plain English)
+Move the last k elements to the front.
+
+**Example:** \`[1,2,3,4,5,6,7]\`, k=3
+→ Move last 3 elements \`[5,6,7]\` to front → \`[5,6,7,1,2,3,4]\`
+
+---
+
+## 💡 The Clever Trick — Reverse 3 Times
+1. Reverse the **whole** array
+2. Reverse the **first k** elements
+3. Reverse the **remaining** elements
+
+\`\`\`
+Original:         [1, 2, 3, 4, 5, 6, 7]
+Step 1 (reverse all):  [7, 6, 5, 4, 3, 2, 1]
+Step 2 (reverse 0..k-1): [5, 6, 7, 4, 3, 2, 1]
+Step 3 (reverse k..end): [5, 6, 7, 1, 2, 3, 4] ✅
+\`\`\`
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+void rotate(int[] nums, int k) {
+    k = k % nums.length;          // handle k > length
+    reverse(nums, 0, nums.length - 1);
+    reverse(nums, 0, k - 1);
+    reverse(nums, k, nums.length - 1);
+}
+
+void reverse(int[] nums, int start, int end) {
+    while (start < end) {
+        int temp = nums[start];
+        nums[start++] = nums[end];
+        nums[end--] = temp;
+    }
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(1) — in-place! |
+
+---
+
+## ✅ Interview Tips
+- Always do \`k = k % n\` first (what if k > array size?)
+- Brute force: shift one by one k times → O(n*k), too slow
+- This 3-reverse trick is the **optimal** solution
+`
+    },
+    {
+      question: 'Move all zeros to the end',
+      answerMd: `
+# Move All Zeros to the End
+
+## 🧠 What it means (Plain English)
+Move all \`0\`s to the right while keeping non-zero numbers in their original order.
+
+**Example:** \`[0, 1, 0, 3, 12]\` → \`[1, 3, 12, 0, 0]\`
+
+---
+
+## 💡 The Simple Idea — Two Pointers
+Use a pointer (\`insertPos\`) that points to where the next non-zero should go.
+
+\`\`\`
+[0,  1,  0,  3,  12]
+ ↑
+insertPos = 0
+
+Found 1 → place at insertPos=0, insertPos becomes 1
+Found 3 → place at insertPos=1, insertPos becomes 2
+Found 12 → place at insertPos=2, insertPos becomes 3
+Fill rest with 0s → [1, 3, 12, 0, 0] ✅
+\`\`\`
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+void moveZeroes(int[] nums) {
+    int insertPos = 0;
+
+    // Step 1: push all non-zero to front
+    for (int num : nums) {
+        if (num != 0) nums[insertPos++] = num;
+    }
+
+    // Step 2: fill remaining with 0s
+    while (insertPos < nums.length) {
+        nums[insertPos++] = 0;
+    }
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(1) — in-place |
+
+---
+
+## ✅ Interview Tips
+- Maintain **relative order** of non-zero elements (don't just swap with end)
+- Common follow-up: "minimize the number of writes" → swap instead of overwrite
+`
+    },
+    {
+      question: 'Merge two sorted arrays',
+      answerMd: `
+# Merge Two Sorted Arrays
+
+## 🧠 What it means (Plain English)
+Given two already-sorted arrays, combine them into one sorted array.
+
+**Example:**
+- Array 1: \`[1, 3, 5]\`
+- Array 2: \`[2, 4, 6]\`
+- Result: \`[1, 2, 3, 4, 5, 6]\`
+
+---
+
+## 💡 The Simple Idea — Two Pointers
+Use one pointer per array. Compare the two elements, pick the smaller one, move that pointer forward.
+
+\`\`\`
+[1, 3, 5]   [2, 4, 6]
+ i              j
+
+1 < 2 → take 1, i++
+2 < 3 → take 2, j++
+3 < 4 → take 3, i++
+4 < 5 → take 4, j++
+5 < 6 → take 5, i++
+take 6 (remaining)
+→ [1, 2, 3, 4, 5, 6] ✅
+\`\`\`
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+int[] merge(int[] a, int[] b) {
+    int[] result = new int[a.length + b.length];
+    int i = 0, j = 0, k = 0;
+
+    while (i < a.length && j < b.length) {
+        if (a[i] <= b[j]) result[k++] = a[i++];
+        else               result[k++] = b[j++];
+    }
+
+    while (i < a.length) result[k++] = a[i++];  // leftovers
+    while (j < b.length) result[k++] = b[j++];  // leftovers
+
+    return result;
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(m + n) |
+| Space | O(m + n) for result |
+
+---
+
+## ✅ Interview Tips
+- This is the **core step of Merge Sort**
+- LeetCode 88 variant: merge B into A in-place → start from the **end** to avoid overwriting
+`
+    }
+  ]
+},
+{
+  category: 'dsa',
+  title: '🔤 Strings',
+  subItems: [
+    {
+      question: 'Palindrome check',
+      important: true,
+      answerMd: `
+# Palindrome Check
+
+## 🧠 What it means (Plain English)
+A string that reads the same forwards and backwards.
+
+**Example:** \`"racecar"\` → palindrome ✅ | \`"hello"\` → not palindrome ❌
+
+---
+
+## 💡 The Simple Idea — Two Pointers
+Put one pointer at the **start**, one at the **end**.
+Move them toward the middle. If any pair doesn't match → not a palindrome.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+boolean isPalindrome(String s) {
+    int left = 0, right = s.length() - 1;
+    while (left < right) {
+        if (s.charAt(left) != s.charAt(right)) return false;
+        left++;
+        right--;
+    }
+    return true;
+}
+
+// Test
+System.out.println(isPalindrome("racecar")); // true
+System.out.println(isPalindrome("hello"));   // false
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(1) |
+
+---
+
+## ✅ Interview Tips
+- For **numbers**: reverse the number, compare with original
+- Interviewer may say "ignore spaces and case" → clean the string first: \`s.toLowerCase().replaceAll("[^a-z0-9]", "")\`
+- The reverse-string approach also works but uses O(n) extra space
+`
+    },
+    {
+      question: 'Anagram check',
+      important: true,
+      answerMd: `
+# Anagram Check
+
+## 🧠 What it means (Plain English)
+Two words are anagrams if they have the **exact same letters** (just in different order).
+
+**Example:** \`"listen"\` and \`"silent"\` → anagram ✅
+\`"hello"\` and \`"world"\` → not anagram ❌
+
+---
+
+## 💡 Two Approaches
+
+### Approach 1 — Sort both strings (easiest to remember)
+If sorted versions are equal → anagram!
+\`"listen"\` sorted → \`"eilnst"\`
+\`"silent"\` sorted → \`"eilnst"\` ✅
+
+### Approach 2 — Frequency Count (faster)
+Count how many times each letter appears. Compare counts.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+// Approach 1 — Sort
+boolean isAnagram(String s, String t) {
+    if (s.length() != t.length()) return false;
+    char[] a = s.toCharArray();
+    char[] b = t.toCharArray();
+    Arrays.sort(a);
+    Arrays.sort(b);
+    return Arrays.equals(a, b);
+}
+
+// Approach 2 — Frequency Array (O(n), better)
+boolean isAnagramFast(String s, String t) {
+    if (s.length() != t.length()) return false;
+    int[] count = new int[26];
+    for (char c : s.toCharArray()) count[c - 'a']++;
+    for (char c : t.toCharArray()) count[c - 'a']--;
+    for (int i : count) if (i != 0) return false;
+    return true;
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| Approach | Time | Space |
+|----------|------|-------|
+| Sort | O(n log n) | O(1) |
+| Frequency | O(n) | O(1) — fixed 26 slots |
+
+---
+
+## ✅ Interview Tips
+- Always check **length first** — if different, can't be anagram
+- If string has **Unicode** characters → use a HashMap instead of int[26]
+`
+    },
+    {
+      question: 'Reverse words in a sentence',
+      answerMd: `
+# Reverse Words in a Sentence
+
+## 🧠 What it means (Plain English)
+Reverse the **order of words**, not the letters.
+
+**Example:** \`"the sky is blue"\` → \`"blue is sky the"\`
+
+---
+
+## 💡 The Simple Idea
+Split by spaces → reverse the array → join back.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+String reverseWords(String s) {
+    String[] words = s.trim().split("\\\\s+");  // handles multiple spaces
+    int left = 0, right = words.length - 1;
+
+    while (left < right) {
+        String temp = words[left];
+        words[left++] = words[right];
+        words[right--] = temp;
+    }
+
+    return String.join(" ", words);
+}
+
+System.out.println(reverseWords("the sky is blue")); // "blue is sky the"
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(n) |
+
+---
+
+## ✅ Interview Tips
+- \`split("\\\\s+")\` handles **multiple spaces** between words
+- Always \`.trim()\` to remove leading/trailing spaces
+- In-place solution: reverse whole string, then reverse each word individually
+`
+    },
+    {
+      question: 'First non-repeating character',
+      answerMd: `
+# First Non-Repeating Character
+
+## 🧠 What it means (Plain English)
+Find the first character that appears only **once** in the string.
+
+**Example:** \`"leetcode"\` → \`'l'\` (appears once, first)
+**Example:** \`"aabb"\` → no unique character → return \`-1\`
+
+---
+
+## 💡 The Simple Idea — Two Passes
+**Pass 1:** Count frequency of each character using a HashMap.
+**Pass 2:** Walk the string again. First character with count = 1 → that's the answer!
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+int firstUniqChar(String s) {
+    Map<Character, Integer> count = new HashMap<>();
+
+    // Pass 1: count
+    for (char c : s.toCharArray())
+        count.put(c, count.getOrDefault(c, 0) + 1);
+
+    // Pass 2: find first with count 1
+    for (int i = 0; i < s.length(); i++)
+        if (count.get(s.charAt(i)) == 1) return i;
+
+    return -1;
+}
+
+System.out.println(firstUniqChar("leetcode")); // 0 (index of 'l')
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(1) — at most 26 keys |
+
+---
+
+## ✅ Interview Tips
+- Can use \`int[26]\` instead of HashMap if only lowercase letters
+- Queue-based approach: store characters in insertion order, O(n) lookup
+`
+    },
+    {
+      question: 'String compression (e.g., aabcc → a2b1c2)',
+      answerMd: `
+# String Compression
+
+## 🧠 What it means (Plain English)
+Count consecutive repeated characters and write them as \`char + count\`.
+
+**Example:** \`"aabcccdddd"\` → \`"a2b1c3d4"\`
+**Rule:** If compressed string is longer → return original string.
+
+---
+
+## 💡 The Simple Idea
+Walk through string. Keep counting consecutive same characters. When character changes, write \`char + count\`.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+String compress(String s) {
+    StringBuilder sb = new StringBuilder();
+    int i = 0;
+
+    while (i < s.length()) {
+        char current = s.charAt(i);
+        int count = 0;
+
+        // count how many times current char repeats
+        while (i < s.length() && s.charAt(i) == current) {
+            i++;
+            count++;
+        }
+        sb.append(current);
+        sb.append(count);
+    }
+
+    String result = sb.toString();
+    return result.length() < s.length() ? result : s;
+}
+
+System.out.println(compress("aabcccdddd")); // "a2b1c3d4"
+System.out.println(compress("abc"));        // "abc" (no compression benefit)
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(n) — for result |
+
+---
+
+## ✅ Interview Tips
+- Always compare compressed length with original — return shorter one
+- Follow-up: "decompress" a compressed string (reverse this logic)
+`
+    }
+  ]
+},
+{
+  category: 'dsa',
+  title: '🔗 Linked List',
+  subItems: [
+    {
+      question: 'Reverse a linked list',
+      important: true,
+      answerMd: `
+# Reverse a Linked List
+
+## 🧠 What it means (Plain English)
+Flip the direction of arrows in a linked list.
+
+**Example:** \`1 → 2 → 3 → 4 → null\` becomes \`4 → 3 → 2 → 1 → null\`
+
+---
+
+## 💡 The Simple Idea — 3 Pointers
+Use 3 pointers: \`prev\`, \`current\`, \`next\`
+At each step, flip the arrow of current node backward, then move all 3 pointers one step forward.
+
+\`\`\`
+prev=null   curr=1 → 2 → 3 → 4
+Step 1: save next=2, flip: 1→null, prev=1, curr=2
+Step 2: save next=3, flip: 2→1, prev=2, curr=3
+...
+\`\`\`
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+ListNode reverse(ListNode head) {
+    ListNode prev = null;
+    ListNode curr = head;
+
+    while (curr != null) {
+        ListNode next = curr.next;  // save next
+        curr.next = prev;           // flip arrow
+        prev = curr;                // move prev
+        curr = next;                // move curr
+    }
+
+    return prev; // prev is now the new head
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(1) — in-place |
+
+---
+
+## ✅ Interview Tips
+- This is the **most common** linked list question — must know by heart
+- Recursive version also works but uses O(n) call stack space
+- Interviewers may ask: "reverse only a subpart" → same idea, just with boundary pointers
+`
+    },
+    {
+      question: 'Detect a cycle (Floyd\'s algorithm)',
+      important: true,
+      answerMd: `
+# Detect a Cycle — Floyd's Algorithm (Tortoise & Hare)
+
+## 🧠 What it means (Plain English)
+A cycle in a linked list means some node's \`next\` pointer points **back** to an earlier node — creating an infinite loop.
+
+**Example:** \`1 → 2 → 3 → 4 → 2\` (4 points back to 2 → cycle!)
+
+---
+
+## 💡 The Simple Idea — Two Speed Runners
+Send two pointers:
+- **Slow pointer** (tortoise): moves 1 step at a time
+- **Fast pointer** (hare): moves 2 steps at a time
+
+If there's a cycle, fast will eventually lap slow and they'll **meet**. If no cycle, fast reaches \`null\`.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+boolean hasCycle(ListNode head) {
+    ListNode slow = head;
+    ListNode fast = head;
+
+    while (fast != null && fast.next != null) {
+        slow = slow.next;        // 1 step
+        fast = fast.next.next;   // 2 steps
+
+        if (slow == fast) return true; // they met → cycle!
+    }
+
+    return false; // fast reached end → no cycle
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(1) — no extra data structure |
+
+---
+
+## ✅ Interview Tips
+- HashSet approach also works (store visited nodes) but uses O(n) space — mention it first, then say Floyd's is O(1)
+- Follow-up: "Find where the cycle starts" → when slow & fast meet, reset one to head, move both 1 step — they'll meet at cycle start
+`
+    },
+    {
+      question: 'Find the middle of a linked list',
+      answerMd: `
+# Find the Middle of a Linked List
+
+## 🧠 What it means (Plain English)
+Find the **center node** of a linked list without knowing its length first.
+
+**Example:** \`1 → 2 → 3 → 4 → 5\` → Middle = \`3\`
+**Example:** \`1 → 2 → 3 → 4\` → Middle = \`3\` (second middle for even length)
+
+---
+
+## 💡 The Simple Idea — Slow & Fast Pointers
+- **Slow**: moves 1 step
+- **Fast**: moves 2 steps
+
+When **fast** reaches the end, **slow** is at the middle!
+(Fast covers 2x distance — so slow is always at half)
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+ListNode findMiddle(ListNode head) {
+    ListNode slow = head;
+    ListNode fast = head;
+
+    while (fast != null && fast.next != null) {
+        slow = slow.next;
+        fast = fast.next.next;
+    }
+
+    return slow; // slow is at middle!
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(1) |
+
+---
+
+## ✅ Interview Tips
+- This is a building block for many problems (palindrome check, merge sort on LL)
+- Naive approach: count length first → two passes; slow/fast is one pass
+`
+    },
+    {
+      question: 'Remove nth node from the end',
+      important: true,
+      answerMd: `
+# Remove Nth Node from the End
+
+## 🧠 What it means (Plain English)
+Remove the node that is n positions from the **end** of the list.
+
+**Example:** \`1 → 2 → 3 → 4 → 5\`, n=2 → Remove \`4\` → \`1 → 2 → 3 → 5\`
+
+---
+
+## 💡 The Simple Idea — Gap Pointer
+Use two pointers with a gap of n between them.
+1. Move **fast** pointer n steps ahead.
+2. Move both **slow** and **fast** together until fast reaches the end.
+3. Slow is now right before the node to delete!
+
+\`\`\`
+1 → 2 → 3 → 4 → 5,  n=2
+fast moves 2 steps: fast=3, slow=1
+Both move until fast=null: fast=5→null, slow=3
+slow.next (= 4) is deleted!
+\`\`\`
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+ListNode removeNthFromEnd(ListNode head, int n) {
+    ListNode dummy = new ListNode(0);
+    dummy.next = head;
+    ListNode fast = dummy, slow = dummy;
+
+    // Move fast n+1 steps ahead
+    for (int i = 0; i <= n; i++) fast = fast.next;
+
+    // Move both until fast is null
+    while (fast != null) {
+        slow = slow.next;
+        fast = fast.next;
+    }
+
+    slow.next = slow.next.next; // delete the node
+
+    return dummy.next;
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) — one pass |
+| Space | O(1) |
+
+---
+
+## ✅ Interview Tips
+- Always use a **dummy node** — handles edge case of deleting the head
+- Two-pass approach (count length first) is simpler but uses 2 passes
+`
+    }
+  ]
+},
+{
+  category: 'dsa',
+  title: '📚 Stack & Queue',
+  subItems: [
+    {
+      question: 'Valid parentheses / bracket matching',
+      important: true,
+      answerMd: `
+# Valid Parentheses / Bracket Matching
+
+## 🧠 What it means (Plain English)
+Check if a string of brackets is properly opened and closed.
+
+**Valid:** \`"()[]{}"\` ✅ | \`"({[]})"\` ✅
+**Invalid:** \`"(]"\` ❌ | \`"([)"\` ❌ | \`"(("\` ❌
+
+---
+
+## 💡 The Simple Idea — Stack
+A **Stack** is like a stack of plates — last in, first out.
+- If you see an **opening bracket** → push it on stack
+- If you see a **closing bracket** → check if top of stack is its matching opener
+  - If yes → pop (good pair!)
+  - If no → invalid!
+- At the end, stack should be **empty** (all matched)
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+boolean isValid(String s) {
+    Stack<Character> stack = new Stack<>();
+
+    for (char c : s.toCharArray()) {
+        if (c == '(' || c == '[' || c == '{') {
+            stack.push(c);                     // opening → push
+        } else {
+            if (stack.isEmpty()) return false; // nothing to match with
+
+            char top = stack.pop();
+            if (c == ')' && top != '(') return false;
+            if (c == ']' && top != '[') return false;
+            if (c == '}' && top != '{') return false;
+        }
+    }
+
+    return stack.isEmpty(); // all opened must be closed
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(n) — worst case all opening brackets |
+
+---
+
+## ✅ Interview Tips
+- This is a **classic** stack problem — know it cold
+- Edge cases: empty string (return true), only closing brackets
+- Can use a HashMap to map closing → opening for cleaner code
+`
+    },
+    {
+      question: 'Next greater element',
+      important: true,
+      answerMd: `
+# Next Greater Element
+
+## 🧠 What it means (Plain English)
+For each element in the array, find the **next element to its right that is larger**.
+If no such element exists, return -1.
+
+**Example:** \`[4, 5, 2, 10, 8]\`
+- 4 → next greater = **5**
+- 5 → next greater = **10**
+- 2 → next greater = **10**
+- 10 → next greater = **-1** (nothing bigger after)
+- 8 → next greater = **-1**
+→ Result: \`[5, 10, 10, -1, -1]\`
+
+---
+
+## 💡 The Simple Idea — Monotonic Stack
+Use a stack that keeps elements in **decreasing order**.
+Walk array left to right. For each new element:
+- Pop all stack elements that are **smaller** than current (current is their next greater!)
+- Push current onto stack.
+- Whatever is left in stack at end → their next greater = -1.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+int[] nextGreater(int[] nums) {
+    int n = nums.length;
+    int[] result = new int[n];
+    Arrays.fill(result, -1);             // default to -1
+    Stack<Integer> stack = new Stack<>(); // stores indices
+
+    for (int i = 0; i < n; i++) {
+        // pop all elements smaller than nums[i]
+        while (!stack.isEmpty() && nums[stack.peek()] < nums[i]) {
+            result[stack.pop()] = nums[i];
+        }
+        stack.push(i);
+    }
+
+    return result;
+}
+// Output for [4,5,2,10,8]: [5, 10, 10, -1, -1]
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) — each element pushed/popped once |
+| Space | O(n) |
+
+---
+
+## ✅ Interview Tips
+- This is the classic **Monotonic Stack** pattern
+- Brute force (nested loops) is O(n²) — always mention then optimize
+- Variant: "Next Smaller Element" → flip the comparison
+`
+    },
+    {
+      question: 'Min Stack — get minimum in O(1)',
+      answerMd: `
+# Min Stack — Get Minimum in O(1)
+
+## 🧠 What it means (Plain English)
+Design a stack that supports \`push\`, \`pop\`, \`top\` operations **AND** can tell you the **minimum element** at any time in O(1) time.
+
+---
+
+## 💡 The Simple Idea — Two Stacks
+Maintain a second "minStack" that tracks the minimum at each level.
+- Push a value → also push current minimum to minStack
+- Pop a value → also pop from minStack
+- Get min → peek at top of minStack (always up to date!)
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+class MinStack {
+    Stack<Integer> stack = new Stack<>();
+    Stack<Integer> minStack = new Stack<>();
+
+    void push(int val) {
+        stack.push(val);
+        // push the new minimum (either val or the previous min)
+        int min = minStack.isEmpty() ? val : Math.min(val, minStack.peek());
+        minStack.push(min);
+    }
+
+    void pop() {
+        stack.pop();
+        minStack.pop();
+    }
+
+    int top() {
+        return stack.peek();
+    }
+
+    int getMin() {
+        return minStack.peek(); // O(1)!
+    }
+}
+\`\`\`
+
+---
+
+## 📊 Walkthrough
+\`\`\`
+push(5): stack=[5],      minStack=[5]
+push(3): stack=[5,3],    minStack=[5,3]
+push(7): stack=[5,3,7],  minStack=[5,3,3]
+getMin() → 3 ✅
+pop():   stack=[5,3],    minStack=[5,3]
+getMin() → 3 ✅
+pop():   stack=[5],      minStack=[5]
+getMin() → 5 ✅
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| Operation | Time | Space |
+|-----------|------|-------|
+| push/pop/top/getMin | O(1) | O(n) total |
+
+---
+
+## ✅ Interview Tips
+- Key insight: minimum can **change with pops** → you need to track min at every level
+- Some solutions use a single stack with pairs (value, currentMin) — same idea
+`
+    }
+  ]
+},
+{
+  category: 'dsa',
+  title: '📊 Hashing',
+  subItems: [
+    {
+      question: 'Find the most frequent element',
+      answerMd: `
+# Find the Most Frequent Element
+
+## 🧠 What it means (Plain English)
+Find the element that appears the **most number of times** in the array.
+
+**Example:** \`[1, 3, 2, 1, 4, 1, 3]\` → \`1\` (appears 3 times)
+
+---
+
+## 💡 The Simple Idea — HashMap
+Count how many times each element appears using a HashMap.
+Then find the key with the highest count.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+int mostFrequent(int[] nums) {
+    Map<Integer, Integer> count = new HashMap<>();
+
+    for (int num : nums)
+        count.put(num, count.getOrDefault(num, 0) + 1);
+
+    int maxFreq = 0, result = nums[0];
+    for (Map.Entry<Integer, Integer> entry : count.entrySet()) {
+        if (entry.getValue() > maxFreq) {
+            maxFreq = entry.getValue();
+            result = entry.getKey();
+        }
+    }
+
+    return result;
+}
+// Output for [1,3,2,1,4,1,3]: 1
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(n) |
+
+---
+
+## ✅ Interview Tips
+- Variant: "Top K frequent elements" → use a min-heap of size k
+- Java shortcut: \`Collections.frequency(list, element)\` but it's O(n) per element
+`
+    },
+    {
+      question: 'Group anagrams together',
+      important: true,
+      answerMd: `
+# Group Anagrams Together
+
+## 🧠 What it means (Plain English)
+Given a list of words, group words that are anagrams of each other.
+
+**Example:** \`["eat","tea","tan","ate","nat","bat"]\`
+→ \`[["eat","tea","ate"], ["tan","nat"], ["bat"]]\`
+
+---
+
+## 💡 The Simple Idea — Sort as Key
+Two words that are anagrams will have the **same sorted characters**.
+Use sorted version as a HashMap key → group all words with that key.
+
+\`"eat"\` → sort → \`"aet"\` ← all 3 map to this key
+\`"tea"\` → sort → \`"aet"\`
+\`"ate"\` → sort → \`"aet"\`
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+List<List<String>> groupAnagrams(String[] strs) {
+    Map<String, List<String>> map = new HashMap<>();
+
+    for (String s : strs) {
+        char[] chars = s.toCharArray();
+        Arrays.sort(chars);
+        String key = new String(chars); // sorted string = key
+
+        map.computeIfAbsent(key, k -> new ArrayList<>()).add(s);
+    }
+
+    return new ArrayList<>(map.values());
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n * k log k) where k = max word length |
+| Space | O(n * k) |
+
+---
+
+## ✅ Interview Tips
+- Frequency array as key is faster (O(k) per word vs O(k log k)) but harder to code
+- This is a **classic HashMap grouping** pattern used in many problems
+`
+    },
+    {
+      question: 'Longest consecutive sequence',
+      important: true,
+      answerMd: `
+# Longest Consecutive Sequence
+
+## 🧠 What it means (Plain English)
+Find the length of the longest sequence of consecutive numbers in an array (order doesn't matter).
+
+**Example:** \`[100, 4, 200, 1, 3, 2]\`
+→ Consecutive: \`1, 2, 3, 4\` → Length = **4**
+
+---
+
+## 💡 The Simple Idea — HashSet
+Put all numbers in a **HashSet** (O(1) lookup).
+For each number, check if it's the **start of a sequence** (number - 1 is NOT in set).
+If it's a start, count how far the sequence goes.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+int longestConsecutive(int[] nums) {
+    Set<Integer> set = new HashSet<>();
+    for (int n : nums) set.add(n);
+
+    int longest = 0;
+
+    for (int n : set) {
+        if (!set.contains(n - 1)) {  // n is start of a sequence
+            int current = n;
+            int streak = 1;
+
+            while (set.contains(current + 1)) {
+                current++;
+                streak++;
+            }
+
+            longest = Math.max(longest, streak);
+        }
+    }
+
+    return longest;
+}
+// Output for [100,4,200,1,3,2]: 4
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) — each number processed once |
+| Space | O(n) |
+
+---
+
+## ✅ Interview Tips
+- Sorting approach is O(n log n) — mention it but say HashSet is better
+- The key trick: **only start counting from sequence starts** (no n-1 in set) — prevents redundant work
+`
+    }
+  ]
+},
+{
+  category: 'dsa',
+  title: '🔍 Searching & Sorting',
+  subItems: [
+    {
+      question: 'Binary Search and its variants',
+      important: true,
+      answerMd: `
+# Binary Search and Its Variants
+
+## 🧠 What it means (Plain English)
+Search a **sorted** array by repeatedly cutting the search space in half.
+Like guessing a number 1-100: "Is it 50? Too high. Is it 25? Too low..."
+
+**Example:** Find 7 in \`[1, 3, 5, 7, 9, 11]\`
+→ Check middle (5), too low. Check middle of right half (9), too high. Check 7 → Found! ✅
+
+---
+
+## 💡 The Template
+\`\`\`
+left = 0, right = n - 1
+while (left <= right):
+    mid = left + (right - left) / 2  // avoid overflow!
+    if arr[mid] == target → found!
+    if arr[mid] < target  → left = mid + 1  (go right)
+    if arr[mid] > target  → right = mid - 1 (go left)
+\`\`\`
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+// Standard Binary Search
+int binarySearch(int[] arr, int target) {
+    int left = 0, right = arr.length - 1;
+
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+
+        if (arr[mid] == target) return mid;
+        else if (arr[mid] < target) left = mid + 1;
+        else right = mid - 1;
+    }
+
+    return -1; // not found
+}
+
+// Find FIRST occurrence (variant)
+int firstOccurrence(int[] arr, int target) {
+    int left = 0, right = arr.length - 1, result = -1;
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+        if (arr[mid] == target) { result = mid; right = mid - 1; } // keep going left!
+        else if (arr[mid] < target) left = mid + 1;
+        else right = mid - 1;
+    }
+    return result;
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(log n) |
+| Space | O(1) |
+
+---
+
+## ✅ Interview Tips
+- Always use \`mid = left + (right - left) / 2\` (not \`(left + right) / 2\` → integer overflow!)
+- Key variants: first occurrence, last occurrence, find insertion position
+- "Search in rotated array" is a popular follow-up — binary search still works with extra if-condition
+`
+    },
+    {
+      question: 'Search in a rotated sorted array',
+      important: true,
+      answerMd: `
+# Search in a Rotated Sorted Array
+
+## 🧠 What it means (Plain English)
+A sorted array was rotated (shifted) at some point.
+Find a target in it in O(log n).
+
+**Example:** \`[4, 5, 6, 7, 0, 1, 2]\`, target = 0 → index **4**
+
+---
+
+## 💡 The Simple Idea
+Even after rotation, **one half is always sorted**.
+Check which half is sorted → see if target falls in it → search that half.
+
+\`\`\`
+[4, 5, 6, 7, 0, 1, 2], mid=7
+Left half [4,5,6,7] is sorted. Is target(0) in [4..7]? No.
+→ Search right half [0,1,2]
+\`\`\`
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+int search(int[] nums, int target) {
+    int left = 0, right = nums.length - 1;
+
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+
+        if (nums[mid] == target) return mid;
+
+        // Left half is sorted
+        if (nums[left] <= nums[mid]) {
+            if (target >= nums[left] && target < nums[mid])
+                right = mid - 1;    // target is in left half
+            else
+                left = mid + 1;     // target is in right half
+        }
+        // Right half is sorted
+        else {
+            if (target > nums[mid] && target <= nums[right])
+                left = mid + 1;     // target is in right half
+            else
+                right = mid - 1;    // target is in left half
+        }
+    }
+
+    return -1;
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(log n) |
+| Space | O(1) |
+
+---
+
+## ✅ Interview Tips
+- The trick is: **always one half is sorted** → use that to decide where to search
+- Handle duplicates separately (harder variant — O(n) worst case)
+`
+    },
+    {
+      question: 'Find the Kth largest element',
+      answerMd: `
+# Find the Kth Largest Element
+
+## 🧠 What it means (Plain English)
+Find the Kth largest number in an array (no need to sort everything).
+
+**Example:** \`[3, 2, 1, 5, 6, 4]\`, K=2 → Answer: **5** (2nd largest)
+
+---
+
+## 💡 Two Approaches
+
+### Approach 1 — Min-Heap (Most Recommended)
+Keep a min-heap of size K.
+- Add each element; if heap size > K → remove the smallest.
+- At the end, heap top = Kth largest!
+
+### Approach 2 — QuickSelect (Fastest avg case)
+Partial sort using partition (like QuickSort but only recurse on one side).
+
+---
+
+## 💻 Code — Min-Heap (Java)
+\`\`\`java
+int findKthLargest(int[] nums, int k) {
+    PriorityQueue<Integer> minHeap = new PriorityQueue<>(); // min-heap
+
+    for (int num : nums) {
+        minHeap.offer(num);
+        if (minHeap.size() > k)
+            minHeap.poll(); // remove smallest, keep only top k
+    }
+
+    return minHeap.peek(); // top of heap = kth largest
+}
+// Input: [3,2,1,5,6,4], k=2 → Output: 5
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| Approach | Time | Space |
+|----------|------|-------|
+| Min-Heap | O(n log k) | O(k) |
+| QuickSelect | O(n) avg, O(n²) worst | O(1) |
+| Sort | O(n log n) | O(1) |
+
+---
+
+## ✅ Interview Tips
+- Min-Heap is the **safest answer** in interviews (predictable performance)
+- QuickSelect is faster on average but risky with duplicates/sorted input
+- K=1 is "find maximum" — always sanity check with simple cases
+`
+    }
+  ]
+},
+// ─────────────────────────────────────────────────────────────────────────────
+// 🌲 TREES
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  category: 'dsa',
+  title: '🌲 Trees',
+  subItems: [
+    {
+      question: 'Height / Depth of a Binary Tree',
+      important: true,
+      answerMd: `
+# Height / Depth of a Binary Tree
+
+## 🧠 What it means (Plain English)
+Height = number of edges on the **longest path** from root to a leaf.
+Depth of a node = number of edges from root **to that node**.
+
+**Example:**
+\`\`\`
+        1          ← depth 0
+       / \\
+      2   3        ← depth 1
+     / \\
+    4   5          ← depth 2
+\`\`\`
+Height of this tree = **2**
+
+---
+
+## 💡 The Simple Idea
+Use **recursion** (DFS).
+- Height of an empty tree = -1 (or 0 if counting nodes, not edges)
+- Height of a node = 1 + max(height of left, height of right)
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+// Returns number of edges on longest root-to-leaf path
+int height(TreeNode root) {
+    if (root == null) return -1;
+    return 1 + Math.max(height(root.left), height(root.right));
+}
+// Tree above → height(root) = 2
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) — visit every node once |
+| Space | O(h) — recursion stack (h = height) |
+
+---
+
+## ✅ Interview Tips
+- Clarify: height by **edges** or **nodes**? (edges → empty tree = -1; nodes → empty tree = 0)
+- Follow-up: "Find depth of a given node" → BFS with level counter
+`
+    },
+    {
+      question: 'Level Order Traversal (BFS)',
+      important: true,
+      answerMd: `
+# Level Order Traversal (BFS)
+
+## 🧠 What it means (Plain English)
+Visit nodes **level by level**, left to right — like reading a tree row by row.
+
+**Example:**
+\`\`\`
+        1
+       / \\
+      2   3
+     / \\
+    4   5
+\`\`\`
+Output: \`[[1], [2, 3], [4, 5]]\`
+
+---
+
+## 💡 The Simple Idea
+Use a **Queue** (FIFO).
+1. Add root to queue.
+2. While queue is not empty:
+   - Process all nodes at current level.
+   - Add their children for the next level.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+List<List<Integer>> levelOrder(TreeNode root) {
+    List<List<Integer>> result = new ArrayList<>();
+    if (root == null) return result;
+
+    Queue<TreeNode> queue = new LinkedList<>();
+    queue.offer(root);
+
+    while (!queue.isEmpty()) {
+        int size = queue.size();          // # nodes at this level
+        List<Integer> level = new ArrayList<>();
+
+        for (int i = 0; i < size; i++) {
+            TreeNode node = queue.poll();
+            level.add(node.val);
+            if (node.left != null)  queue.offer(node.left);
+            if (node.right != null) queue.offer(node.right);
+        }
+        result.add(level);
+    }
+    return result;
+}
+// Output: [[1], [2, 3], [4, 5]]
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(n) — queue holds up to one full level |
+
+---
+
+## ✅ Interview Tips
+- The \`int size = queue.size()\` trick is the key to separating levels
+- Common variants: zigzag level order, right side view, average of each level
+`
+    },
+    {
+      question: 'Check if a Tree is Balanced',
+      important: true,
+      answerMd: `
+# Check if a Binary Tree is Balanced
+
+## 🧠 What it means (Plain English)
+A **height-balanced** tree: for every node, the left and right subtree heights differ by **at most 1**.
+
+**Balanced:**
+\`\`\`
+    1
+   / \\
+  2   3
+ /
+4
+\`\`\`
+**Not balanced:**
+\`\`\`
+    1
+   /
+  2
+ /
+3
+\`\`\`
+
+---
+
+## 💡 The Efficient Idea
+Compute height bottom-up with DFS.
+- Return **-2** (sentinel) if any subtree is already unbalanced — short-circuit.
+- Otherwise return the actual height.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+boolean isBalanced(TreeNode root) {
+    return checkHeight(root) != -2;
+}
+
+int checkHeight(TreeNode node) {
+    if (node == null) return -1;
+
+    int left  = checkHeight(node.left);
+    if (left == -2) return -2;          // propagate imbalance
+
+    int right = checkHeight(node.right);
+    if (right == -2) return -2;
+
+    if (Math.abs(left - right) > 1) return -2;  // unbalanced here
+    return 1 + Math.max(left, right);
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(h) recursion stack |
+
+---
+
+## ✅ Interview Tips
+- Naïve solution calls height() at every node → O(n²); this bottom-up is O(n)
+- The sentinel value (-2 or Integer.MIN_VALUE) is the interviewer-impressing trick
+`
+    },
+    {
+      question: 'Lowest Common Ancestor (LCA)',
+      important: true,
+      answerMd: `
+# Lowest Common Ancestor (LCA)
+
+## 🧠 What it means (Plain English)
+Given two nodes p and q in a binary tree, find the **deepest node that is an ancestor of both**.
+
+**Example:**
+\`\`\`
+        3
+       / \\
+      5   1
+     / \\
+    6   2
+\`\`\`
+LCA(6, 2) = **5** | LCA(5, 1) = **3** | LCA(6, 5) = **5**
+
+---
+
+## 💡 The Simple Idea (DFS)
+At each node ask:
+- Is this node p or q? → return it.
+- Recurse left and right.
+- If **both** sides return non-null → **current node is the LCA**.
+- Otherwise return whichever side found something.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+TreeNode lowestCommonAncestor(TreeNode root, TreeNode p, TreeNode q) {
+    if (root == null || root == p || root == q) return root;
+
+    TreeNode left  = lowestCommonAncestor(root.left,  p, q);
+    TreeNode right = lowestCommonAncestor(root.right, p, q);
+
+    if (left != null && right != null) return root; // p & q on different sides
+    return left != null ? left : right;             // both on same side
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(h) recursion stack |
+
+---
+
+## ✅ Interview Tips
+- For a **BST**: use the BST property → if both < root go left, both > root go right, else root is LCA
+- Edge case: one node is ancestor of the other → the ancestor itself is the LCA (handled naturally)
+`
+    },
+    {
+      question: 'Diameter of a Binary Tree',
+      answerMd: `
+# Diameter of a Binary Tree
+
+## 🧠 What it means (Plain English)
+The **diameter** is the length of the **longest path** between any two nodes in the tree (the path may or may not pass through the root).
+
+**Example:**
+\`\`\`
+        1
+       / \\
+      2   3
+     / \\
+    4   5
+\`\`\`
+Longest path: 4 → 2 → 1 → 3 (or 5 → 2 → 1 → 3) = **3 edges** → diameter = 3
+
+---
+
+## 💡 The Idea
+At each node, the longest path **through that node** = height(left) + height(right) + 2.
+Use DFS and track the global maximum.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+int diameter = 0;
+
+int diameterOfBinaryTree(TreeNode root) {
+    height(root);
+    return diameter;
+}
+
+int height(TreeNode node) {
+    if (node == null) return -1;
+    int left  = height(node.left);
+    int right = height(node.right);
+    diameter = Math.max(diameter, left + right + 2); // path through this node
+    return 1 + Math.max(left, right);
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(h) |
+
+---
+
+## ✅ Interview Tips
+- The diameter does **not** have to pass through the root — common misconception
+- Combining "compute height + update global answer" in one DFS pass is the key pattern
+`
+    },
+    {
+      question: 'Validate a Binary Search Tree (BST)',
+      important: true,
+      answerMd: `
+# Validate a Binary Search Tree
+
+## 🧠 What it means (Plain English)
+A valid BST: every node's left subtree contains **only smaller values**, right subtree contains **only larger values** — recursively.
+
+**Valid BST:**
+\`\`\`
+    5
+   / \\
+  3   7
+ / \\
+2   4
+\`\`\`
+**Invalid BST:** (6 is in left subtree of 5 but 6 > 5)
+\`\`\`
+    5
+   / \\
+  6   7
+\`\`\`
+
+---
+
+## 💡 The Idea — Pass Valid Range (min, max)
+Each node must be within the range **allowed by its ancestors**.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+boolean isValidBST(TreeNode root) {
+    return validate(root, Long.MIN_VALUE, Long.MAX_VALUE);
+}
+
+boolean validate(TreeNode node, long min, long max) {
+    if (node == null) return true;
+    if (node.val <= min || node.val >= max) return false;
+
+    return validate(node.left,  min,      node.val)
+        && validate(node.right, node.val, max);
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(n) |
+| Space | O(h) |
+
+---
+
+## ✅ Interview Tips
+- Common wrong answer: only check left < root < right at each node (misses cross-level violations)
+- Use \`long\` bounds to handle Integer.MIN_VALUE / Integer.MAX_VALUE edge cases
+- Inorder traversal of a valid BST yields a **strictly increasing** sequence — alternative approach
+`
+    }
+  ]
+},
+// ─────────────────────────────────────────────────────────────────────────────
+// 🌐 GRAPHS
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  category: 'dsa',
+  title: '🌐 Graphs',
+  subItems: [
+    {
+      question: 'BFS / DFS Traversal',
+      important: true,
+      answerMd: `
+# Graph BFS / DFS Traversal
+
+## 🧠 What it means (Plain English)
+- **BFS** (Breadth-First Search): explore neighbors level by level (use a Queue).
+- **DFS** (Depth-First Search): go as deep as possible before backtracking (use recursion / Stack).
+
+**Graph:**
+\`\`\`
+0 -- 1 -- 3
+|    |
+2 -- 4
+\`\`\`
+BFS from 0: 0 → 1 → 2 → 3 → 4
+DFS from 0: 0 → 1 → 3 → 4 → 2
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+// BFS
+void bfs(Map<Integer, List<Integer>> graph, int start) {
+    Set<Integer> visited = new HashSet<>();
+    Queue<Integer> queue = new LinkedList<>();
+    queue.offer(start);
+    visited.add(start);
+
+    while (!queue.isEmpty()) {
+        int node = queue.poll();
+        System.out.print(node + " ");
+        for (int neighbor : graph.getOrDefault(node, List.of())) {
+            if (!visited.contains(neighbor)) {
+                visited.add(neighbor);
+                queue.offer(neighbor);
+            }
+        }
+    }
+}
+
+// DFS (recursive)
+void dfs(Map<Integer, List<Integer>> graph, int node, Set<Integer> visited) {
+    visited.add(node);
+    System.out.print(node + " ");
+    for (int neighbor : graph.getOrDefault(node, List.of())) {
+        if (!visited.contains(neighbor)) {
+            dfs(graph, neighbor, visited);
+        }
+    }
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(V + E) — vertices + edges |
+| Space | O(V) — visited set + queue/stack |
+
+---
+
+## ✅ Interview Tips
+- Always use a **visited** set to avoid infinite loops in cyclic graphs
+- BFS = shortest path in unweighted graphs; DFS = connectivity, cycle detection, topological sort
+- Represent graph as adjacency list (\`Map<Integer, List<Integer>>\`) for interviews
+`
+    },
+    {
+      question: 'Detect Cycle in Directed / Undirected Graph',
+      important: true,
+      answerMd: `
+# Detect Cycle in a Graph
+
+## 🧠 What it means (Plain English)
+A **cycle** means you can start at a node and follow edges back to the same node.
+
+---
+
+## 💡 Two Cases
+
+### Undirected Graph — DFS with parent tracking
+Mark visited nodes. If a neighbor is already visited **and it's not the parent**, cycle exists.
+
+### Directed Graph — DFS with recursion stack
+Track nodes in the **current DFS path** (rec stack). If you hit a node already in the rec stack → cycle!
+
+---
+
+## 💻 Code (Java)
+
+### Undirected
+\`\`\`java
+boolean hasCycleUndirected(Map<Integer, List<Integer>> graph, int n) {
+    boolean[] visited = new boolean[n];
+    for (int i = 0; i < n; i++) {
+        if (!visited[i] && dfs(graph, i, visited, -1)) return true;
+    }
+    return false;
+}
+
+boolean dfs(Map<Integer, List<Integer>> graph, int node, boolean[] visited, int parent) {
+    visited[node] = true;
+    for (int neighbor : graph.getOrDefault(node, List.of())) {
+        if (!visited[neighbor]) {
+            if (dfs(graph, neighbor, visited, node)) return true;
+        } else if (neighbor != parent) return true; // back edge → cycle
+    }
+    return false;
+}
+\`\`\`
+
+### Directed
+\`\`\`java
+boolean hasCycleDirected(Map<Integer, List<Integer>> graph, int n) {
+    boolean[] visited = new boolean[n];
+    boolean[] recStack = new boolean[n];
+    for (int i = 0; i < n; i++) {
+        if (!visited[i] && dfs(graph, i, visited, recStack)) return true;
+    }
+    return false;
+}
+
+boolean dfs(Map<Integer, List<Integer>> graph, int node,
+            boolean[] visited, boolean[] recStack) {
+    visited[node] = true;
+    recStack[node] = true;
+    for (int neighbor : graph.getOrDefault(node, List.of())) {
+        if (!visited[neighbor] && dfs(graph, neighbor, visited, recStack)) return true;
+        else if (recStack[neighbor]) return true; // back edge in directed graph
+    }
+    recStack[node] = false; // remove from current path
+    return false;
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(V + E) |
+| Space | O(V) |
+
+---
+
+## ✅ Interview Tips
+- Undirected: "visited + parent" trick; Directed: "visited + recStack" trick
+- For directed graphs, Kahn's algorithm (BFS-based topological sort) is an alternative
+`
+    },
+    {
+      question: "Shortest Path — Dijkstra's Algorithm",
+      important: true,
+      answerMd: `
+# Shortest Path — Dijkstra's Algorithm
+
+## 🧠 What it means (Plain English)
+Find the **shortest distance** from a source node to all other nodes in a **weighted graph** (non-negative weights).
+
+**Example:**
+\`\`\`
+0 --1-- 1 --2-- 3
+ \\           /
+  4         1
+   \\       /
+    2 --1-- (via node 2, total 1+1=2 to reach 3 from 0? no..)
+\`\`\`
+Shortest distances from node 0: 0→0, 1→1, 2→4, 3→3
+
+---
+
+## 💡 The Idea — Greedy with Min-Heap
+Always process the **unvisited node with the smallest known distance** first (min-heap).
+Update neighbors if a shorter path is found.
+
+---
+
+## 💻 Code (Java)
+\`\`\`java
+int[] dijkstra(int n, Map<Integer, List<int[]>> graph, int src) {
+    // graph: node -> list of [neighbor, weight]
+    int[] dist = new int[n];
+    Arrays.fill(dist, Integer.MAX_VALUE);
+    dist[src] = 0;
+
+    // MinHeap: [distance, node]
+    PriorityQueue<int[]> pq = new PriorityQueue<>(Comparator.comparingInt(a -> a[0]));
+    pq.offer(new int[]{0, src});
+
+    while (!pq.isEmpty()) {
+        int[] curr = pq.poll();
+        int d = curr[0], u = curr[1];
+
+        if (d > dist[u]) continue; // stale entry
+
+        for (int[] edge : graph.getOrDefault(u, List.of())) {
+            int v = edge[0], w = edge[1];
+            if (dist[u] + w < dist[v]) {
+                dist[v] = dist[u] + w;
+                pq.offer(new int[]{dist[v], v});
+            }
+        }
+    }
+    return dist;
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O((V + E) log V) |
+| Space | O(V + E) |
+
+---
+
+## ✅ Interview Tips
+- **Negative weights?** Use Bellman-Ford instead
+- The \`if (d > dist[u]) continue\` line skips outdated heap entries — don't forget it
+- For unweighted graphs, plain BFS gives shortest path in O(V + E)
+`
+    },
+    {
+      question: 'Number of Connected Components',
+      answerMd: `
+# Number of Connected Components
+
+## 🧠 What it means (Plain English)
+Count how many **separate groups** exist in an undirected graph (nodes that can't reach each other belong to different components).
+
+**Example:**
+\`\`\`
+0 -- 1    3 -- 4    5
+     |
+     2
+\`\`\`
+Answer: **3** components → {0,1,2}, {3,4}, {5}
+
+---
+
+## 💡 Two Approaches
+
+### Approach 1 — DFS / BFS
+For each unvisited node, do a full DFS/BFS and mark all reachable nodes. Count = number of times you start a new DFS.
+
+### Approach 2 — Union-Find (Disjoint Set)
+Efficient for dynamic connectivity. Merge nodes that share an edge; count distinct roots.
+
+---
+
+## 💻 Code — DFS (Java)
+\`\`\`java
+int countComponents(int n, int[][] edges) {
+    Map<Integer, List<Integer>> graph = new HashMap<>();
+    for (int[] e : edges) {
+        graph.computeIfAbsent(e[0], k -> new ArrayList<>()).add(e[1]);
+        graph.computeIfAbsent(e[1], k -> new ArrayList<>()).add(e[0]);
+    }
+
+    boolean[] visited = new boolean[n];
+    int count = 0;
+
+    for (int i = 0; i < n; i++) {
+        if (!visited[i]) {
+            dfs(graph, i, visited);
+            count++;
+        }
+    }
+    return count;
+}
+
+void dfs(Map<Integer, List<Integer>> graph, int node, boolean[] visited) {
+    visited[node] = true;
+    for (int neighbor : graph.getOrDefault(node, List.of())) {
+        if (!visited[neighbor]) dfs(graph, neighbor, visited);
+    }
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(V + E) |
+| Space | O(V) |
+
+---
+
+## ✅ Interview Tips
+- Same pattern solves: "number of islands" (2D grid BFS/DFS), "friend circles"
+- Union-Find is preferred when edges are added dynamically
+`
+    },
+    {
+      question: 'Topological Sort',
+      important: true,
+      answerMd: `
+# Topological Sort
+
+## 🧠 What it means (Plain English)
+Order tasks so that for every dependency A → B, **A comes before B**.
+Only works on **Directed Acyclic Graphs (DAGs)**.
+
+**Example:** Course prerequisites
+\`\`\`
+0 → 1 → 3
+↓       ↑
+2 ──────┘
+\`\`\`
+Valid topological order: **0, 1, 2, 3** or **0, 2, 1, 3**
+
+---
+
+## 💡 Two Approaches
+
+### Approach 1 — Kahn's Algorithm (BFS)
+1. Compute **in-degree** (# incoming edges) for each node.
+2. Start with all nodes with in-degree 0.
+3. Process each, reduce neighbors' in-degree. If it hits 0, add to queue.
+4. If output size ≠ n → cycle detected!
+
+### Approach 2 — DFS with post-order stack
+Do DFS; push node to stack **after** all its neighbors are visited. Reverse the stack.
+
+---
+
+## 💻 Code — Kahn's BFS (Java)
+\`\`\`java
+List<Integer> topologicalSort(int n, int[][] edges) {
+    int[] inDegree = new int[n];
+    Map<Integer, List<Integer>> graph = new HashMap<>();
+
+    for (int[] e : edges) {
+        graph.computeIfAbsent(e[0], k -> new ArrayList<>()).add(e[1]);
+        inDegree[e[1]]++;
+    }
+
+    Queue<Integer> queue = new LinkedList<>();
+    for (int i = 0; i < n; i++) {
+        if (inDegree[i] == 0) queue.offer(i);
+    }
+
+    List<Integer> order = new ArrayList<>();
+    while (!queue.isEmpty()) {
+        int node = queue.poll();
+        order.add(node);
+        for (int neighbor : graph.getOrDefault(node, List.of())) {
+            if (--inDegree[neighbor] == 0) queue.offer(neighbor);
+        }
+    }
+
+    return order.size() == n ? order : List.of(); // empty if cycle
+}
+\`\`\`
+
+---
+
+## ⏱️ Complexity
+| What | Value |
+|------|-------|
+| Time | O(V + E) |
+| Space | O(V + E) |
+
+---
+
+## ✅ Interview Tips
+- Kahn's algorithm **detects cycles** for free (output.size() != n)
+- Classic problems: Course Schedule I & II (LeetCode 207, 210)
+- Think "in-degree" → "who depends on me" vs "who do I depend on"
+`
+    }
   ]
 }
 ];

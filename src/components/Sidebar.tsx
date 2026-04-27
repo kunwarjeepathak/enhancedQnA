@@ -36,10 +36,12 @@ interface SidebarProps {
 // Category icons mapping (Material Icons)
 const categoryIcons: Record<Category, JSX.Element> = {
   all: <ListAlt fontSize="small" />,
+  dsa: <ListAlt fontSize="small" />,
   java: <Coffee fontSize="small" />,
   systemDesign: <Build fontSize="small" />,
   springBoot: <Nature fontSize="small" />,
   microservices: <Nature fontSize="small" />,
+  aiEngineering: <Nature fontSize="small" />,
   cloud: <Cloud fontSize="small" />,
   devOps: <BuildCircle fontSize="small" />,
   kafka: <Send fontSize="small" />,
