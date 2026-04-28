@@ -3,7 +3,7 @@ import Header   from './components/Header';
 import Sidebar  from './components/Sidebar';
 import QAList   from './components/QAList';
 
-export type Category = 'all' | 'dsa'| 'java' | 'systemDesign' | 'springBoot' | 'microservices' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'aiEngineering' |'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'Healthcare';
+export type Category = 'all' | 'dsa'| 'java' | 'systemDesign' | 'springBoot' | 'microservices' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'dataArchitect' | 'aiEngineering' |'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'Healthcare';
 
 const categories = [
   { key: 'all' as Category,        label: 'All' },
@@ -17,6 +17,7 @@ const categories = [
   { key: 'kafka' as Category,      label: 'Kafka' },
   { key: 'aws' as Category,      label: 'AWS' },
   { key: 'azure' as Category,      label: 'Azure' },
+  { key: 'dataArchitect' as Category,      label: 'Data Architect' },
   { key: 'aiEngineering' as Category,      label: 'AI Engineering' },
   { key: 'javascript' as Category,      label: 'Javascript and TypeScript' },
   { key: 'react' as Category,      label: 'React' },

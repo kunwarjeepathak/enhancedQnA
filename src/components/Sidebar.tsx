@@ -47,6 +47,7 @@ const categoryIcons: Record<Category, JSX.Element> = {
   kafka: <Send fontSize="small" />,
   aws: <RocketLaunch fontSize="small" />,
   azure: <Public fontSize="small" />,
+  dataArchitect: <SupervisorAccount fontSize="small" />,
   javascript: <Javascript fontSize="small" />,
   react: <Science fontSize="small" />,
   angular: <ChangeHistory fontSize="small" />,
