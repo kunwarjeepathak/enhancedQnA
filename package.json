@@ -2,7 +2,7 @@
   "name": "qa-hub-react",
   "version": "1.0.0",
   "private": true,
-  "homepage": "https://kunwarjeepathak.github.io/enhancedQnA",
+  "homepage": ".",
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
