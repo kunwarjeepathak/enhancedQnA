@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Header   from './components/Header';
 import Sidebar  from './components/Sidebar';
 import QAList   from './components/QAList';
+import { AskAI } from './AskAI';
 
 export type Category = 'all' | 'dsa'| 'java' | 'systemDesign' | 'springBoot' | 'microservices' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'dataArchitect' | 'aiEngineering' |'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'Healthcare';
 
@@ -63,6 +64,9 @@ function App() {
         />
         <QAList category={activeCat} searchTerm={searchTerm} />
       </div>
+
+      {/* AI Assistant — always mounted, context-aware */}
+      <AskAI activeCategory={activeCat} darkMode={darkMode} />
     </>
   );
 }
