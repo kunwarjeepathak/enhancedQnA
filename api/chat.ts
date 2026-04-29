@@ -1,5 +1,4 @@
 export default async function handler(req: any, res: any) {
-  // Allow CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -8,19 +7,22 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const apiKey = process.env.GROQ_API_KEY;
-
-  // Debug: check if key is loaded
   if (!apiKey) {
-    return res.status(500).json({ error: 'GROQ_API_KEY is missing from environment variables' });
+    return res.status(500).json({ error: 'GROQ_API_KEY not set in environment variables' });
   }
 
-  const { messages } = req.body;
-  if (!messages || !Array.isArray(messages)) {
-    return res.status(400).json({ error: 'Invalid messages format' });
+  let messages;
+  try {
+    messages = req.body?.messages;
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: 'messages must be an array' });
+    }
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid request body' });
   }
 
   try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -34,14 +36,14 @@ export default async function handler(req: any, res: any) {
       }),
     });
 
-    const data = await response.json();
+    const data = await groqRes.json();
 
-    if (!response.ok) {
-      return res.status(response.status).json({ error: data });
+    if (!groqRes.ok) {
+      return res.status(groqRes.status).json({ error: data });
     }
 
     return res.status(200).json(data);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message || 'Fetch to Groq failed' });
   }
 }
