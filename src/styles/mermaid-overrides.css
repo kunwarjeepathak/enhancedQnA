@@ -1,0 +1,108 @@
+/* mermaid-overrides.css
+   Make Mermaid SVGs readable on dark backgrounds and avoid global style bleed.
+*/
+
+/* Make mermaid container behave normally (do NOT reset everything with `all: initial`) */
+.mermaid-container {
+  box-sizing: border-box;
+  display: block;
+  overflow: auto;
+  margin: 16px 0;
+  padding: 0.5rem 0;
+  text-align: center;
+}
+
+/* Base mermaid responsive rules */
+.mermaid,
+.sub-answer .mermaid,
+.mermaid-container .mermaid {
+  display: block;
+  width: 100%;
+  background: transparent !important;
+  color: inherit;
+  overflow: visible;
+}
+
+/* Ensure SVG scales nicely */
+.mermaid svg {
+  width: 100% !important;
+  height: auto !important;
+  max-width: 100%;
+  display: block;
+  margin: 0 auto;
+  background: transparent !important;
+}
+
+/* Force high-contrast strokes and arrowheads for dark page backgrounds */
+.mermaid svg .edgePath path,
+.mermaid svg path.edge,
+.mermaid svg .messageLine,
+.mermaid svg line {
+  stroke: rgba(255,255,255,0.85) !important;  /* bright on dark bg */
+  stroke-width: 1.5px !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  fill: none !important;
+  opacity: 1 !important;
+}
+
+/* Arrowheads (marker) */
+.mermaid svg marker path,
+.mermaid svg marker polygon {
+  fill: rgba(255,255,255,0.85) !important;
+  stroke: none !important;
+}
+
+/* Message text & labels (sequence diagrams) */
+.mermaid svg .messageText,
+.mermaid svg .label,
+.mermaid svg text {
+  fill: rgba(255,255,255,0.95) !important; /* readable on dark bg */
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  paint-order: stroke fill !important;
+}
+
+/* Actor (participant) boxes for sequence diagrams */
+.mermaid svg .actor,
+.mermaid svg .actor rect,
+.mermaid svg .actorLabel {
+  /* actor box fill remains pale so text is readable */
+  fill: #efecff !important;
+  stroke: rgba(200,200,210,0.9) !important;
+}
+
+.mermaid svg .actor text,
+.mermaid svg .actorLabel text {
+  fill: #111 !important; /* dark text on light actor box */
+}
+
+/* Notes (small sticky-note style) */
+.mermaid svg .note {
+  fill: rgba(255,250,210,0.95) !important;
+  stroke: rgba(200,180,0,0.9) !important;
+  color: #111;
+}
+
+/* Ensure text inside nodes is not overwritten by parent color rules */
+.sub-answer .mermaid svg text {
+  fill: rgba(255,255,255,0.95) !important;
+}
+
+/* Make sure long diagrams can scroll horizontally if needed */
+.mermaid-wrapper,
+.sub-answer .mermaid,
+.mermaid-container {
+  overflow-x: auto;
+}
+
+/* Slightly thicker lines for flowcharts too */
+.mermaid svg .flowchart .edgeLabel,
+.mermaid svg .flowchart path {
+  stroke-width: 1.6px !important;
+}
+
+/* Prevent page CSS from scaling strokes unexpectedly */
+.mermaid svg * {
+  vector-effect: non-scaling-stroke !important;
+}
