@@ -97,27 +97,22 @@ Give sharp, actionable answers with code examples when relevant.
 Use markdown formatting — headings, bullet points, inline code, and code blocks with language tags.
 Keep responses focused and practical. If asked about topics outside the current category, still help helpfully.`;
 
-    // Gemini expects role "model" instead of "assistant"
-    const conversationHistory = [...messages, userMsg].map(m => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }));
-
-    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const conversationHistory = [
+      { role: 'system', content: systemPrompt },
+      ...([...messages, userMsg].map(m => ({
+        role: m.role,
+        content: m.content,
+      })))
+    ];
 
     abortRef.current = new AbortController();
 
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: abortRef.current.signal,
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: conversationHistory,
-          generationConfig: { maxOutputTokens: 1024 },
-        }),
+        body: JSON.stringify({ messages: conversationHistory }),
       });
 
       if (response.status === 429) {
@@ -136,7 +131,7 @@ Keep responses focused and practical. If asked about topics outside the current 
       }
 
       const data = await response.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '⚠️ No response received.';
+      const text = data?.choices?.[0]?.message?.content || '⚠️ No response received.';
 
       setMessages(prev =>
         prev.map(m =>
