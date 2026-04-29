@@ -104,7 +104,7 @@ Keep responses focused and practical. If asked about topics outside the current 
     }));
 
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${apiKey}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
     abortRef.current = new AbortController();
 
@@ -120,42 +120,27 @@ Keep responses focused and practical. If asked about topics outside the current 
         }),
       });
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let accumulated = '';
-
-      while (reader) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim();
-            if (!data || data === '[DONE]') continue;
-            try {
-              const parsed = JSON.parse(data);
-              const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (text) {
-                accumulated += text;
-                setMessages(prev =>
-                  prev.map(m =>
-                    m.id === assistantId
-                      ? { ...m, content: accumulated, isStreaming: true }
-                      : m
-                  )
-                );
-              }
-            } catch {}
-          }
-        }
+      if (response.status === 429) {
+        setMessages(prev =>
+          prev.map(m =>
+            m.id === assistantId
+              ? { ...m, content: '⏳ Too many requests — please wait a few seconds and try again.', isStreaming: false }
+              : m
+          )
+        );
+        return;
       }
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '⚠️ No response received.';
 
       setMessages(prev =>
         prev.map(m =>
-          m.id === assistantId ? { ...m, isStreaming: false } : m
+          m.id === assistantId ? { ...m, content: text, isStreaming: false } : m
         )
       );
     } catch (err: any) {
