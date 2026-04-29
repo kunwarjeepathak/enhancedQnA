@@ -104,7 +104,7 @@ Keep responses focused and practical. If asked about topics outside the current 
     }));
 
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=${apiKey}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${apiKey}`;
 
     abortRef.current = new AbortController();
 
