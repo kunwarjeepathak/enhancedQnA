@@ -2,6 +2,9 @@
   "name": "qa-hub-react",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "homepage": ".",
   "scripts": {
     "start": "react-scripts start",
