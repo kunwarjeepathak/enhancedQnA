@@ -32,7 +32,7 @@ const categories = [
   { key: 'JPMQuestions' as Category,    label: 'JPMC questions' },
   { key: 'hobbies' as Category,    label: 'Hobbies' },
   { key: 'engineeringManager' as Category,    label: 'Engineering Manager' },
-  { key: 'Healthcare' as Category,    label: 'Healthcare' }
+  { key: 'healthcare' as Category,    label: 'Healthcare' }
 ];
 
 function App() {
