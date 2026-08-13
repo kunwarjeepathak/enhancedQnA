@@ -34177,6 +34177,33 @@ A **jailbreak** is the user themselves trying to get the model to violate its ow
 > **In one sentence:** prompt injection — especially the indirect kind, hidden inside retrieved documents or tool results — exploits the fact that an LLM can't always distinguish content it's meant to read from instructions it's meant to obey, and defending against it means layering the same principles as tool-calling safety (least privilege, treating external content as untrusted, risk-tiered human approval, and logging) one step earlier in the pipeline, since no single filter reliably catches every attempt on its own.
 `
     },
+    {
+      question: '15. Benefit Explainability Solution Architecture — Sydney VA end-to-end flow (IBM Watson, APIGEE/A2A, 10xE Azure environment)',
+      important: true,
+      imageUrls: ['/assets/BenefitExplainabilityArchitecture.png'],
+      answerMd: `
+# Benefit Explainability Solution Architecture — Sydney VA
+
+![Benefit Explainability Solution Architecture](/assets/BenefitExplainabilityArchitecture.png)
+
+## 🧭 End-to-End Flow
+1. **Sydney VA** — the member logs into the Sydney portal and submits a question to the virtual assistant (e.g. "how do I plan for a promo/program covered under my plan?").
+2. **VA → Gen UI API** — the virtual assistant sends the member's query to the Gen UI API hosted in IBM Cloud.
+3. **Gen UI API → Meta agent** — the Gen UI API triggers the Meta agent, which uses the Pioneer agent to determine the appropriate action; for benefit-related questions it routes to the **Benefit agent**.
+4. **Benefit agent → 10xE Orchestrator (via A2A)** — the Benefit agent connects to the 10xE Orchestrator over the A2A protocol through the APIGEE gateway. The Orchestrator invokes the **MCP layer**, which calls the required **API layer** to retrieve the benefits data.
+
+## 🧱 Layers Inside the 10xE Azure Environment
+| Layer | Role |
+|---|---|
+| **Agent layer** | Orchestrator, Benefit coverage agent, MCP client — decides which tools/agents to call and assembles the response |
+| **MCP layer** | Provider network, Benefit coverage, Data ingestion (embeddings, landing zone) — exposes domain tools over MCP |
+| **API layer** | Provider API, NLS API — the actual backend data-access endpoints |
+| **Infra layer** | Azure DB, MongoDB Atlas — storage backing the agent and MCP layers |
+| **Evaluation framework & monitoring** | Observability and evaluation harness wrapping the whole pipeline |
+
+> **In one sentence:** a member's question flows from the Sydney VA through IBM Watson's Meta/Benefit agents, across an APIGEE/A2A gateway, into the 10xE Azure environment where an orchestrated Agent → MCP → API layer stack (backed by Azure DB/MongoDB and wrapped in an evaluation/observability layer) retrieves and explains the member's benefit coverage.
+`
+    },
   ]
 },
 
