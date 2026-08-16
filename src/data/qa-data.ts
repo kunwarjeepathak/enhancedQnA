@@ -27366,6 +27366,968 @@ Recommendations  → Neo4j           (graph traversal)
 // AI ENGINEERING
 // ─────────────────────────────────────────────
 {
+category: 'aiEngineering',
+title: 'GenAI Interview Guide — Retrieval-Augmented Generation (RAG)',
+subItems: [
+{
+question: 'Walk me through how you\'d design a production RAG pipeline for a 500K-document enterprise knowledge base. What are the key stages?',
+important: true,
+answerMd: `
+### Figure 1. End-to-end RAG architecture
+
+\`\`\`mermaid
+flowchart LR
+    subgraph ING["INGESTION PIPELINE (offline / batch)"]
+        A[Raw Documents<br/>PDF, HTML, DB, wiki] --> B[Parse & Clean<br/>layout-aware extraction]
+        B --> C[Semantic Chunking<br/>structure-aware]
+        C --> D[Metadata Enrichment<br/>ACL, source, timestamp]
+        D --> E[Embedding Model]
+        E --> F[(Vector Store +<br/>Sparse Index)]
+    end
+    subgraph QRY["QUERY-TIME PIPELINE (online / real-time)"]
+        Q[User Query] --> R[Query Rewrite /<br/>Decomposition]
+        R --> H[Hybrid Retrieval<br/>BM25 + Dense]
+        H --> RR[Rerank<br/>Cross-Encoder]
+        RR --> CA[Context Assembly<br/>token budget]
+        CA --> G[LLM Generation<br/>+ Citations]
+    end
+    F -. retrieves from index .-> H
+    G -. feedback: ratings + eval scores .-> R
+\`\`\`
+
+I'd break it into ingestion and query time. Ingestion: document parsing (layout-aware, not just raw text extraction), cleaning, semantic chunking (structure-aware, not fixed token windows), metadata enrichment (source, timestamp, access control tags, section headers), embedding generation, and indexing into a vector store with a hybrid schema (dense + sparse fields). Query time: query understanding/rewriting, hybrid retrieval (BM25 + dense), metadata filtering, reranking with a cross-encoder, context assembly with token-budget management, and generation with citations. I'd also add a feedback loop capturing thumbs up/down and retrieval logs to continuously tune chunking and reranking. The interviewer wants to hear that you separate ingestion-time and query-time concerns and that you treat retrieval quality as the primary lever, not the LLM.
+
+**Code: Minimal end-to-end RAG query path (LangChain LCEL)**
+\`\`\`python
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+vectorstore = Chroma(persist_directory="./db", embedding_function=embeddings)
+retriever = vectorstore.as_retriever(
+    search_type="mmr",  # diversify results, avoid near-duplicate chunks
+    search_kwargs={"k": 8, "fetch_k": 30},
+)
+
+prompt = ChatPromptTemplate.from_template(
+    "Answer ONLY using the context below. If the answer is not in the "
+    "context, say you don't know.\\n\\nContext:\\n{context}\\n\\nQuestion: {question}"
+)
+
+def format_docs(docs):
+    return "\\n\\n".join(f"[{d.metadata.get('source')}] {d.page_content}" for d in docs)
+
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+rag_chain = (
+    {"context": retriever | format_docs, "question": RunnablePassthrough()}
+    | prompt
+    | llm
+    | StrOutputParser()
+)
+answer = rag_chain.invoke("What is our refund policy for enterprise plans?")
+\`\`\`
+`,
+},
+{
+question: 'How do you choose a chunking strategy, and how do you evaluate whether it\'s working?',
+answerMd: `
+Fixed-size chunking (e.g., 512 tokens with 10-20% overlap) is a reasonable baseline but breaks semantic units. For production I prefer structure-aware/semantic chunking: split on headings, paragraphs, tables, or use a sentence-window/small-to-big approach where small chunks are embedded for precision but the parent section is passed to the LLM for context. For tables and code, chunk differently (row-preserving, function-preserving).
+
+To evaluate, I look at retrieval recall@k against a labeled eval set, check chunk boundary "orphaning" (does a chunk lose meaning without its neighbor), and measure downstream answer correctness, not just retrieval metrics in isolation — a chunking change can improve recall but hurt answer quality if chunks become too fragmented.
+`,
+},
+{
+question: 'When would you use hybrid search instead of pure dense retrieval, and how do you combine the scores?',
+answerMd: `
+Pure dense retrieval struggles with exact-match needs — product codes, error codes, acronyms, names, numeric values — because embeddings favor semantic similarity over lexical precision. Hybrid search (dense + BM25/sparse) covers both. I combine them either via Reciprocal Rank Fusion (RRF), which is robust because it doesn't require score normalization across different scales, or a weighted linear combination after min-max normalizing each score distribution. In practice I default to RRF because it's simpler to tune and less sensitive to outlier scores. I'd validate the choice with an eval set that includes both semantic and exact-match queries.
+
+**Code: Reciprocal Rank Fusion (RRF) to combine BM25 + dense retrieval results**
+\`\`\`python
+def reciprocal_rank_fusion(ranked_lists, k=60):
+    """
+    ranked_lists: list of ranked doc-id lists, e.g. [bm25_ids, dense_ids]
+    k: RRF constant (60 is the commonly used default)
+    """
+    scores = {}
+    for ranked_ids in ranked_lists:
+        for rank, doc_id in enumerate(ranked_ids):
+            scores[doc_id] = scores.get(doc_id, 0) + 1.0 / (k + rank + 1)
+    fused = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return [doc_id for doc_id, _ in fused]
+
+bm25_hits = bm25_retriever.get_top_ids(query, k=50)
+dense_hits = vector_retriever.get_top_ids(query, k=50)
+fused_ids = reciprocal_rank_fusion([bm25_hits, dense_hits])[:20]
+candidates = fetch_documents(fused_ids)
+top_k = cross_encoder_rerank(query, candidates, top_n=6)
+\`\`\`
+`,
+},
+{
+question: 'How do you decide what to rerank, and what reranker would you pick?',
+answerMd: `
+Retrieve a wider candidate set (e.g., top 50-100) with the cheap first-stage retriever, then rerank with a cross-encoder (e.g., a BGE or Cohere rerank model) down to the top 5-10 passed to the LLM. Cross-encoders score query-document pairs jointly, so they're far more accurate than bi-encoder cosine similarity but too slow to run over the whole corpus — hence the two-stage funnel.
+
+I pick the reranker based on latency budget: a cross-encoder adds real latency (tens to hundreds of ms for 50-100 pairs), so for latency-sensitive apps I might use a lighter distilled reranker or reduce the candidate set size. I always measure whether reranking actually improves NDCG/precision@k on my eval set before shipping it — it's not free and sometimes a well-tuned hybrid retriever alone is enough.
+`,
+},
+{
+question: 'A user reports the RAG system \'made up\' an answer even though the source document exists in the index. How do you debug this?',
+important: true,
+answerMd: `
+- First isolate the layer: was the correct chunk retrieved at all? Log the actual retrieved chunks for that query and inspect them.
+- If retrieval failed: check query phrasing vs. document phrasing (vocabulary mismatch), chunk boundaries (answer split across chunks), embedding model domain fit, or a metadata filter silently excluding the doc.
+- If retrieval succeeded but generation still hallucinated: check the prompt — is the instruction "only answer from context" clear and is the context actually within the token budget (it may have been truncated)? Check if the reranker demoted the right chunk below the top-k cutoff.
+- Add citation/grounding checks: force the LLM to cite chunk IDs, then programmatically verify the citation exists and supports the claim.
+- Long term: build a regression eval set from real failures like this one and re-run it on every pipeline change.
+`,
+},
+{
+question: 'How would you handle multi-hop questions that require synthesizing information across several documents?',
+answerMd: `
+Single-shot "retrieve top-k, stuff into prompt" often fails for multi-hop because the k that answers the first sub-question may crowd out the k needed for the second. I'd use query decomposition — break the question into sub-questions with an LLM, retrieve separately for each, then synthesize.
+
+Alternatively, an agentic/iterative retrieval loop (retrieve, reason, decide if more retrieval is needed, retrieve again) works well — this is where RAG starts to overlap with agentic patterns, e.g., using LangGraph to model retrieve → reflect → retrieve-more as an explicit graph with a loop. Graph-based retrieval (knowledge graph or entity-linked chunks) is another option when relationships between entities matter more than raw text similarity.
+`,
+},
+{
+question: 'How do you handle access control / multi-tenancy in RAG so users can\'t retrieve documents they\'re not authorized to see?',
+answerMd: `
+Never rely on prompt instructions to enforce access control — treat it as a retrieval-time filtering problem, the same way you would in any search system. Store access metadata (tenant ID, ACL groups, classification level) on every chunk at ingestion time, and apply it as a hard pre-filter (not a soft ranking signal) in the vector store query, before the LLM ever sees the results.
+
+For row-level security at scale, use the vector DB's native metadata filtering (e.g., Pinecone namespaces, Weaviate/Milvus filters) rather than filtering after retrieval in application code, since post-filtering can leak counts/timing and wastes retrieval budget. I'd also audit-log every query and the ACL context it was executed under.
+`,
+},
+{
+question: 'How do you keep a RAG index fresh when the underlying documents change frequently?',
+answerMd: `
+Use an incremental ingestion pipeline keyed on document IDs and content hashes: on each sync, diff against the last known hash, and only re-chunk/re-embed changed or new documents; delete vectors for removed docs. For near-real-time freshness, trigger ingestion off a webhook/event (e.g., document saved) rather than polling.
+
+Version chunks so you can do blue/green index swaps — build the new index in a separate namespace/collection, validate it against your eval set, then cut over, so a bad re-index never affects live traffic. I'd also track staleness as a metric (time since last successful sync) and alert on it.
+`,
+},
+]
+},
+{
+category: 'aiEngineering',
+title: 'GenAI Interview Guide — Model Context Protocol (MCP)',
+subItems: [
+{
+question: 'In your own words, what problem does MCP solve that plain function-calling/tool-use doesn\'t?',
+important: true,
+answerMd: `
+### Figure 2. MCP client/server architecture
+
+\`\`\`mermaid
+flowchart LR
+    subgraph HOST["HOST APPLICATION (Claude, IDE, agent app)"]
+        CLIENT[MCP Client<br/>1 per server]
+        LLM[LLM<br/>decides which tool<br/>to call and when]
+        CLIENT <-->|reasoning loop| LLM
+    end
+    subgraph SA["MCP Server A (Jira / Ticketing)"]
+        TA[Tools]
+        RA[Resources]
+        PA[Prompts]
+    end
+    subgraph SB["MCP Server B (GitHub / Filesystem)"]
+        TB[Tools]
+        RB[Resources]
+        PB[Prompts]
+    end
+    CLIENT <-->|JSON-RPC 2.0 over stdio / HTTP+SSE| SA
+    CLIENT <-->|JSON-RPC 2.0 over stdio / HTTP+SSE| SB
+    SA --> EA[External System<br/>Jira API]
+    SB --> EB[External System<br/>GitHub API / filesystem]
+\`\`\`
+*Least privilege: each server exposes narrow, typed tools; write/destructive actions require human approval upstream.*
+
+Before MCP, every application that wanted an LLM to use tools (databases, file systems, SaaS APIs) had to write bespoke integration code, and every model provider had a slightly different tool-calling schema — so you got an M×N problem: M applications each hand-wiring N tools. MCP standardizes the interface between an LLM host/client and a "server" that exposes tools, resources, and prompts, so a tool provider writes one MCP server and any MCP-compatible client (Claude, an IDE, an agent framework) can use it without custom glue code. It's conceptually similar to what LSP (Language Server Protocol) did for editors and language backends — decoupling the client from N different implementations.
+`,
+},
+{
+question: 'What are the core primitives an MCP server exposes, and how do they differ?',
+answerMd: `
+- **Tools** — model-invoked actions with defined input schemas (e.g., \`create_jira_ticket\`); the model decides when to call these based on the conversation.
+- **Resources** — application-controlled, addressable data the client can read (e.g., a file, a database row, a URI) — think of these as GET-able context, not actions.
+- **Prompts** — reusable, user-triggered templates the server exposes (e.g., a slash-command style prompt with parameters).
+- **Sampling** — lets the server request a completion from the client's LLM, useful for servers that need model reasoning without hosting their own model.
+`,
+},
+{
+question: 'How would you design and deploy an MCP server for an internal system, say a ticketing system, and what security controls would you put around it?',
+answerMd: `
+I'd expose a small, well-scoped set of tools (\`create_ticket\`, \`get_ticket_status\`, \`search_tickets\`) rather than a generic "run_sql" style tool — least privilege at the tool-definition level is the first line of defense. Each tool's input schema should be strictly typed and validated server-side, not trusted from the model's output. For transport, use the streamable HTTP transport (not stdio) for anything remote, behind normal auth (OAuth) — MCP added an auth spec for exactly this. I'd run the server with credentials scoped to the calling user (not a shared service account) so the LLM can't act with more privilege than the human it's acting for, log every tool invocation with the actual arguments for audit, and add human-in-the-loop confirmation for destructive or high-impact tools (e.g., closing a ticket, deleting a record).
+
+**Code: Minimal MCP server exposing a narrow, typed ticketing tool (Python SDK)**
+\`\`\`python
+from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel, Field
+
+mcp = FastMCP("ticketing-server")
+
+class CreateTicketInput(BaseModel):
+    title: str = Field(..., max_length=140)
+    description: str
+    priority: str = Field(..., pattern="^(low|medium|high)$")
+
+@mcp.tool()
+def create_ticket(input: CreateTicketInput, user_token: str) -> dict:
+    """Create a support ticket. Requires an authenticated per-user token;
+    never runs with a shared service-account credential."""
+    client = ticketing_client_for_user(user_token)  # scoped to caller
+    ticket = client.create(
+        title=input.title,
+        description=input.description,
+        priority=input.priority,
+    )
+    audit_log("create_ticket", user_token, input.dict(), ticket.id)
+    return {"ticket_id": ticket.id, "status": ticket.status}
+
+@mcp.tool()
+def get_ticket_status(ticket_id: str, user_token: str) -> dict:
+    """Read-only lookup — safe to auto-approve."""
+    client = ticketing_client_for_user(user_token)
+    return client.get(ticket_id).dict()
+
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
+\`\`\`
+`,
+},
+{
+question: 'What are the main risks with MCP that you\'d flag to a security team, and how do you mitigate them?',
+important: true,
+answerMd: `
+- **Tool description injection** — a malicious or compromised MCP server can put instructions inside a tool's description/response that hijack the model's behavior ("prompt injection via tool output"). Mitigate by sandboxing untrusted tool output, not blindly feeding raw tool results back as trusted context, and only connecting to vetted/allow-listed servers.
+- **Overly broad tool scopes** — a tool like \`execute_shell_command\` gives the model too much power. Mitigate with narrow, purpose-built tools and explicit allow-lists.
+- **Confused deputy problems** — the server acting with its own credentials on behalf of an under-privileged user. Mitigate with per-user token passthrough/OAuth rather than a single shared service credential.
+- **No built-in rate limiting or cost control** in early MCP implementations — mitigate at the gateway/host layer with quotas and monitoring.
+- **Supply-chain risk** — installing third-party MCP servers is effectively running third-party code with tool-execution rights; treat it like adding a new dependency, with the same review bar.
+`,
+},
+{
+question: 'How does MCP relate to LangChain tools or LangGraph — do you use MCP instead of them, or together?',
+answerMd: `
+They're complementary, not competing. MCP standardizes how tools/resources are exposed and discovered across the ecosystem; LangChain/LangGraph are orchestration frameworks that decide when and how tools get called within an agent's reasoning loop. In practice, LangChain has MCP adapters (\`langchain-mcp-adapters\`) that let you load MCP server tools and use them as regular LangChain \`Tool\` objects inside a LangGraph agent — so the graph still owns the control flow (nodes, edges, state, retries), while MCP just becomes the transport for a subset of tools, especially ones you don't own or that are shared across multiple applications.
+`,
+},
+{
+question: 'You add a new MCP server and the agent starts calling the wrong tool or hallucinating arguments. How do you debug it?',
+answerMd: `
+First check the tool's description and parameter schema — vague names/descriptions (\`do_thing\`, a param called \`data\` with no description) are the number one cause of misuse, since the model chooses tools purely off the description text, not the implementation. I'd tighten descriptions with explicit examples of when to use vs. not use the tool, and add strict JSON schema constraints (enums, required fields, types) so malformed calls fail validation before execution.
+
+Next I'd check for tool name collisions if multiple MCP servers are connected — overlapping tool names/descriptions across servers confuse selection. I'd also inspect the actual request/response trace (most MCP inspectors and LangSmith-style tracing show this) to see whether the issue is tool selection (wrong tool chosen) or argument extraction (right tool, bad params) — the fixes differ.
+`,
+},
+]
+},
+{
+category: 'aiEngineering',
+title: 'GenAI Interview Guide — LangGraph',
+subItems: [
+{
+question: 'When would you reach for LangGraph instead of a simple LangChain chain or a hand-rolled while loop?',
+important: true,
+answerMd: `
+### Figure 3. LangGraph supervisor / multi-agent StateGraph
+
+\`\`\`mermaid
+flowchart LR
+    START([START]) --> SUP[Supervisor Node<br/>LLM: decide next<br/>specialist or END]
+    SUP -->|route: research| RA[Research Agent<br/>sub-graph + retrieval tools]
+    SUP -->|route: write| WA[Writing Agent<br/>sub-graph + draft/critique]
+    SUP -->|route: risky action| HA[Human Approval<br/>interrupt_before]
+    RA -.state merged back<br/>reducer-based.-> SUP
+    WA -.state merged back.-> SUP
+    HA -.state merged back.-> SUP
+    SUP -->|route: task complete| END([END])
+\`\`\`
+*State (TypedDict) threads through every node; a checkpointer persists state per \`thread_id\` for durability, memory, and resumable human-in-the-loop.*
+
+A linear chain is fine when the control flow is fixed and known in advance (retrieve → prompt → generate). LangGraph earns its keep once you need cycles (an agent that loops until it decides it's done), conditional branching based on model output, persistent state shared across many nodes, human-in-the-loop interruption, or multi-agent coordination. It models the workflow explicitly as a graph of nodes (functions) and edges (including conditional edges), with a typed state object threaded through — which makes complex control flow debuggable and testable in a way that a deeply nested chain of chains is not.
+`,
+},
+{
+question: 'Explain LangGraph\'s state management model. How does state get updated across nodes?',
+answerMd: `
+You define a State schema (typically a \`TypedDict\` or Pydantic model) up front. Each node is a function that receives the current state and returns a partial update. LangGraph merges that update into the global state using reducers — by default a key is overwritten, but you can annotate a field with a reducer like \`operator.add\` (or a custom function) so, e.g., a \`messages\` list accumulates rather than being replaced on every node. This reducer-based merge is what makes it safe for multiple nodes (or parallel branches) to write to state without clobbering each other, as long as the reducer semantics are correct for that field.
+
+**Code: Basic StateGraph with a reducer and a conditional edge (loop until done)**
+\`\`\`python
+from typing import TypedDict, Annotated
+import operator
+from langgraph.graph import StateGraph, END
+
+class AgentState(TypedDict):
+    messages: Annotated[list, operator.add]  # accumulates, never overwritten
+    step_count: int
+    done: bool
+
+def reason_node(state: AgentState) -> dict:
+    response = llm.invoke(state["messages"])
+    return {"messages": [response], "step_count": state["step_count"] + 1}
+
+def act_node(state: AgentState) -> dict:
+    result = execute_tool(state["messages"][-1])
+    return {"messages": [result]}
+
+def should_continue(state: AgentState) -> str:
+    if state["done"] or state["step_count"] >= 8:  # hard step limit
+        return "end"
+    return "continue"
+
+graph = StateGraph(AgentState)
+graph.add_node("reason", reason_node)
+graph.add_node("act", act_node)
+graph.set_entry_point("reason")
+graph.add_edge("reason", "act")
+graph.add_conditional_edges("act", should_continue, {"continue": "reason", "end": END})
+app = graph.compile()
+\`\`\`
+`,
+},
+{
+question: 'How do checkpointing and persistence work in LangGraph, and why do they matter in production?',
+answerMd: `
+LangGraph can persist the full state at every "super-step" via a checkpointer (in-memory for dev, Postgres/SQLite/Redis-backed for production) keyed by a \`thread_id\`. This gives you three things you need in production: (1) durability — if the process crashes mid-execution, you can resume from the last checkpoint instead of restarting the whole workflow; (2) memory — a conversation or long-running task can pick up exactly where it left off across separate invocations; (3) human-in-the-loop — you can pause execution at a node (\`interrupt_before\`/\`interrupt_after\`), let a human inspect or edit the state, then resume. This is the piece that turns a stateless script into something closer to a durable workflow engine.
+`,
+},
+{
+question: 'How would you implement a human-in-the-loop approval step before an agent executes a high-risk action (e.g., sending an email or making a payment)?',
+important: true,
+answerMd: `
+I'd design the graph so the risky action is its own node, and configure the graph to interrupt before that node runs (\`interrupt_before=['send_email']\`). When the graph hits that point, execution pauses and the checkpointed state is returned to the application, which surfaces the proposed action to a human for approval/edit. On approval, the app resumes the graph from the checkpoint (optionally with the state modified, e.g., an edited email body) using the same \`thread_id\`. This pattern keeps the approval logic out of the LLM's hands entirely — it's enforced structurally by the graph, not by asking the model nicely to "wait for confirmation."
+
+**Code: Human-in-the-loop approval using a checkpointer + interrupt_before**
+\`\`\`python
+from langgraph.checkpoint.postgres import PostgresSaver
+
+checkpointer = PostgresSaver.from_conn_string(DB_URL)
+app = graph.compile(checkpointer=checkpointer, interrupt_before=["send_email"])
+
+config = {"configurable": {"thread_id": "conversation-123"}}
+# Runs until it hits the interrupt, then pauses and returns
+result = app.invoke({"messages": [user_message]}, config=config)
+
+# ... surface result["messages"][-1] (proposed email) to a human reviewer ...
+
+if human_approves:
+    # Resume from the checkpoint with no state change
+    app.invoke(None, config=config)
+else:
+    # Resume with an edited state (e.g., corrected email body)
+    app.update_state(config, {"draft_email": edited_body})
+    app.invoke(None, config=config)
+\`\`\`
+`,
+},
+{
+question: 'How do you prevent infinite loops or runaway costs in a LangGraph agent that has a self-correcting/retry loop?',
+answerMd: `
+Set an explicit \`recursion_limit\` on the graph invocation as a hard ceiling. Beyond that, I design the loop condition itself to be bounded — e.g., a state field tracking \`retry_count\` that the conditional edge checks against a max before deciding to loop vs. exit to a fallback/escalation node, rather than looping purely on "does the model think it's done." I'd also track token/cost usage per thread and add a circuit breaker that force-exits the graph and returns a partial/error result if it exceeds a budget, plus alerting so runaway threads get caught in monitoring, not just after the bill arrives.
+`,
+},
+{
+question: 'How do you unit test a LangGraph node vs. testing the whole graph end-to-end?',
+answerMd: `
+Nodes are just plain functions, so I unit test each node in isolation with a mocked/fixture state in, asserting the expected partial state out — no LLM call needed if I stub the model client, which makes these tests fast and deterministic. For conditional edges, I test the routing function directly against different state shapes to confirm it routes correctly. For the full graph, I run integration tests against a small set of golden scenarios end-to-end (using a cheap/deterministic model or recorded responses via something like VCR-style cassettes) to catch issues in how nodes compose, then reserve live-LLM eval runs for a smaller regression suite that runs on a schedule rather than every commit, since those are slower and non-deterministic.
+`,
+},
+{
+question: 'How would you build a multi-agent system in LangGraph — say a supervisor coordinating a research agent and a writing agent?',
+answerMd: `
+I'd model it as a graph where a supervisor node (an LLM call with structured output) decides which specialist subgraph/node to route to next based on current state, using a conditional edge back to itself after each specialist runs, until the supervisor decides the task is complete and routes to END. Each specialist (research agent, writing agent) can itself be a full subgraph with its own internal loop, composed into the parent graph as a node — LangGraph supports nesting graphs this way. Shared state (task, intermediate artifacts, message history) flows through the parent state object; I'd keep each specialist's scratch work in its own state key to avoid cross-contamination, and only surface the final artifact to the supervisor's context to control token growth.
+`,
+},
+]
+},
+{
+category: 'aiEngineering',
+title: 'GenAI Interview Guide — LangChain',
+subItems: [
+{
+question: 'What does LangChain actually give you over calling the LLM API directly, and where does it add unnecessary overhead?',
+important: true,
+answerMd: `
+### Figure 6. LangChain LCEL composition
+
+\`\`\`mermaid
+flowchart LR
+    R[Retriever<br/>context docs] --> P[RunnableParallel<br/>context, question]
+    PS[RunnablePassthrough<br/>question] --> P
+    P --> PT[Prompt Template]
+    PT --> CM[Chat Model<br/>any provider]
+    CM --> OP[Output Parser<br/>schema-typed]
+    OP --> OUT[Final Output<br/>streamed to caller]
+\`\`\`
+*Every component implements the same Runnable interface — \`invoke()\` / \`batch()\` / \`stream()\` / \`ainvoke()\` / \`abatch()\` / \`astream()\` — so streaming, batching, async, and parallelism work uniformly across the whole chain, without each legacy Chain subclass hand-implementing it.*
+
+It standardizes interfaces across model providers (Runnable interface, common message format), gives you composable building blocks (prompt templates, output parsers, retrievers, the LCEL pipe syntax for chaining), built-in streaming/async/batch support across that whole chain, and integrations (100+ vector stores, tool wrappers, document loaders) so you're not writing that plumbing yourself.
+
+Where it adds overhead: for a genuinely simple single-call use case, the abstraction layers (Runnable, callback manager, tracing hooks) add indirection and make stack traces harder to read versus just calling the SDK directly. I default to raw SDK calls for a simple one-shot prompt, and reach for LangChain when I need to compose multiple steps, swap providers, or get tracing/observability for free.
+`,
+},
+{
+question: 'Explain LCEL (LangChain Expression Language) and why it replaced the older Chain classes.',
+answerMd: `
+LCEL lets you compose components with the pipe operator — \`prompt | model | output_parser\` — where every component implements a common Runnable interface (invoke, batch, stream, and their async equivalents). Because every piece shares that interface, composition is uniform and you get streaming, batching, async, and parallelism "for free" across the whole pipeline without each legacy Chain subclass having to hand-implement it. The older Chain-class approach (\`LLMChain\`, \`SequentialChain\`, etc.) required each chain type to separately implement those behaviors, which was inconsistent and harder to extend — LCEL's declarative composition is more predictable and easier to trace/debug.
+`,
+},
+{
+question: 'How do you manage conversational memory in a production LangChain/LangGraph app, especially for long-running conversations?',
+answerMd: `
+Naive approaches (keep the full message history) blow the context window and cost. In practice I use a combination: a sliding window of the most recent N messages kept verbatim for local coherence, plus periodic summarization of older turns into a compact running summary that gets prepended, and for anything that needs to persist beyond the session (user preferences, key facts), extract and store it in an external memory store keyed by user/thread ID rather than relying on it staying in-context forever. LangGraph's checkpointer plus a separate long-term memory store (e.g., a vector store or key-value store for semantic/episodic memory) is the pattern I'd use for anything beyond a single session.
+`,
+},
+{
+question: 'What\'s your approach to output parsing/structured output reliability — how do you make sure the LLM returns valid JSON matching your schema?',
+important: true,
+answerMd: `
+First choice: use the model provider's native structured output / function-calling mode with a Pydantic/JSON schema (\`with_structured_output\` in LangChain) rather than asking for JSON in the prompt and regex-parsing it — constrained decoding or tool-call-based structured output is far more reliable than prompt-only instructions. Second, validate the output against the schema on receipt and have an explicit retry-with-error-feedback loop (send the validation error back to the model and ask it to fix the output) capped at 2-3 attempts before falling back to a default/error path. I always treat "the model will follow the schema" as probabilistic, never guaranteed, and design the calling code accordingly — never trust LLM output going straight into a downstream system without validation.
+
+**Code: Structured output with schema validation + bounded retry**
+\`\`\`python
+from pydantic import BaseModel, Field
+from langchain_openai import ChatOpenAI
+
+class TicketExtraction(BaseModel):
+    priority: str = Field(..., pattern="^(low|medium|high)$")
+    category: str
+    summary: str = Field(..., max_length=200)
+
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+structured_llm = llm.with_structured_output(TicketExtraction)
+
+def extract_with_retry(text: str, max_attempts: int = 3) -> TicketExtraction:
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            return structured_llm.invoke(text)
+        except Exception as e:  # schema/validation failure
+            last_error = e
+            text = f"{text}\\n\\nPrevious attempt failed validation: {e}. Fix and retry."
+    raise RuntimeError(f"Failed after {max_attempts} attempts: {last_error}")
+\`\`\`
+`,
+},
+{
+question: 'How do you handle LangChain/LangGraph version upgrades in a codebase with heavy chain composition, given how fast the library moves?',
+answerMd: `
+Pin exact versions in production (not caret ranges) and upgrade deliberately in a branch with the full eval suite run before merging — the API has changed significantly across versions (legacy Chains to LCEL, ongoing changes in \`langchain-core\` vs. \`langchain\` vs. \`langchain-community\` package splits), so silent minor-version upgrades are a real risk. I keep a small internal abstraction layer around the parts of LangChain I use most (model client creation, retriever interface) so a breaking upstream change is a one-place fix rather than scattered across the codebase. I also lean on the community/community-partner package split — pulling only the specific integration packages I need — to reduce the blast radius of unrelated dependency updates.
+`,
+},
+{
+question: 'Describe a case where you would NOT use LangChain/LangGraph at all.',
+answerMd: `
+For a narrow, latency-critical, single-purpose endpoint — e.g., a service that only does "classify this text into one of 5 categories" with one API call — I'd call the model SDK directly. The abstraction overhead, extra dependency surface, and version churn aren't worth it when there's no multi-step orchestration, no need to swap providers, and no complex state/looping. I'd reserve LangChain/LangGraph for cases with genuine orchestration complexity: multi-step reasoning, tool use, multi-agent coordination, or where I specifically want the tracing/observability integrations (e.g., LangSmith) across a complex pipeline.
+`,
+},
+]
+},
+{
+category: 'aiEngineering',
+title: 'GenAI Interview Guide — RAGAS (RAG Evaluation)',
+subItems: [
+{
+question: 'What are the core RAGAS metrics and what does each one actually measure?',
+important: true,
+answerMd: `
+### Figure 7. RAGAS evaluation loop
+
+\`\`\`mermaid
+flowchart TD
+    G[Golden Eval Set<br/>Q + ground truth] --> P[RAG Pipeline<br/>Under Test]
+    P --> AC[answer + retrieved<br/>contexts per question]
+    AC --> F[Faithfulness]
+    AC --> AR[Answer Relevancy]
+    AC --> CP[Context Precision]
+    AC --> CR[Context Recall]
+    F --> AG[Aggregate Scores +<br/>Per-Question Breakdown]
+    AR --> AG
+    CP --> AG
+    CR --> AG
+    AG --> GATE{Regression Gate<br/>scores ≥ threshold?}
+    GATE -->|pass| SHIP[Ship / Merge]
+    GATE -->|fail| TUNE[Tune chunking /<br/>retrieval / prompts]
+    TUNE -.loop back & re-evaluate.-> P
+\`\`\`
+
+- **Faithfulness** — whether every claim in the generated answer can be inferred from the retrieved context; computed by decomposing the answer into individual statements and checking each against the context with an LLM judge. Catches hallucination.
+- **Answer Relevancy** — whether the answer actually addresses the question asked, computed by generating synthetic questions from the answer and measuring embedding similarity back to the original question. Catches evasive or off-topic answers even if they're factually grounded.
+- **Context Precision** — of the retrieved chunks, how many are actually relevant/ranked appropriately — signal that your retriever/reranker is bringing back noise.
+- **Context Recall** — whether the retrieved context contains all the information needed to answer, measured against a ground-truth answer — signal of retrieval coverage gaps.
+- **Context Entity Recall / other newer metrics** — check whether key entities from the ground truth appear in retrieved context, useful for fact-dense domains.
+
+**Code: Running a RAGAS evaluation over a labeled eval set**
+\`\`\`python
+from datasets import Dataset
+from ragas import evaluate
+from ragas.metrics import (
+    faithfulness, answer_relevancy, context_precision, context_recall,
+)
+
+eval_rows = []
+for question, ground_truth in eval_set:  # your labeled examples
+    retrieved_docs = retriever.invoke(question)
+    answer = rag_chain.invoke(question)
+    eval_rows.append({
+        "question": question,
+        "answer": answer,
+        "contexts": [d.page_content for d in retrieved_docs],
+        "ground_truth": ground_truth,
+    })
+
+dataset = Dataset.from_list(eval_rows)
+results = evaluate(
+    dataset,
+    metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
+)
+df = results.to_pandas()
+print(df[["faithfulness", "answer_relevancy", "context_precision", "context_recall"]].mean())
+# Gate CI/CD: fail the build if faithfulness drops > 2 points vs. the last known-good baseline
+\`\`\`
+`,
+},
+{
+question: 'Context Precision is high but Context Recall is low. What does that tell you, and what would you change?',
+answerMd: `
+High precision means the chunks you did retrieve are mostly relevant — the retriever isn't bringing back noise. Low recall means you're missing pieces of information needed for a complete answer — the right chunks exist but aren't being retrieved, or don't exist in the index at all. I'd first check if k is too small (increase top-k or the pre-rerank candidate pool), then check chunking (is the needed info split across chunks in a way that no single chunk captures it, requiring a larger chunk size or a small-to-big retrieval strategy), and finally check whether the source document is even in the index at all (an ingestion gap, not a retrieval gap).
+`,
+},
+{
+question: 'Faithfulness score is low even though Context Precision/Recall look fine. What\'s your hypothesis?',
+answerMd: `
+This points at the generation step, not retrieval — the right information is being retrieved, but the model isn't using it faithfully. Common causes: the prompt doesn't clearly instruct the model to answer only from context (or the instruction is buried/weak), the context is being truncated before it reaches the model due to token budget issues, the model is blending its own parametric knowledge with the retrieved context (common with very capable models on well-known topics), or the answer is technically supported but stated with unsupported certainty/extra detail the model added. I'd fix the prompt (explicit "cite only from context, say you don't know if the context is insufficient"), verify the actual prompt sent (not the intended one — log it), and consider a lower-temperature or a faithfulness-focused fine-tune/guardrail as a backstop.
+`,
+},
+{
+question: 'How do you build a ground-truth evaluation dataset for RAGAS when you don\'t have one, and how large does it need to be?',
+answerMd: `
+RAGAS/most eval frameworks support synthetic test-set generation — sampling documents from your corpus and using an LLM to generate question/ground-truth-answer/context triples, with varied question types (simple factual, multi-hop, reasoning, negative/unanswerable). I always follow this with human review and correction of a meaningful sample, since synthetic ground truth without validation can encode the same biases as the model generating it. Separately, I mine real production queries and outcomes (especially failures/user complaints) into the eval set, since that's the distribution that actually matters. Size depends on the domain's diversity, but I aim for at least 50-100 well-curated examples covering the main query types before trusting metric deltas as signal, and grow it over time as new failure modes surface.
+`,
+},
+{
+question: 'How do you use RAGAS scores as part of a CI/CD pipeline rather than a one-off evaluation?',
+answerMd: `
+I run the eval set against every pipeline change (chunking strategy, retriever swap, prompt edit, model version) as an automated step, compute aggregate metrics, and compare against the current production baseline with a defined regression threshold (e.g., faithfulness can't drop more than 2 points) that blocks merge/deploy if breached. I track metrics over time in a dashboard, not just pass/fail, since gradual drift matters as much as a hard regression. I also segment the eval set by query type/category so a change that helps simple factual questions but hurts multi-hop questions doesn't get lost in an aggregate average — this is the same discipline as a normal test suite, applied to a probabilistic system.
+`,
+},
+{
+question: 'What are the known limitations of RAGAS-style LLM-judge metrics, and how do you mitigate them?',
+important: true,
+answerMd: `
+LLM-as-judge metrics inherit the judge model's own biases and blind spots — it can be fooled by fluent-but-wrong answers, may be inconsistent run-to-run (non-determinism), and evaluation cost/latency scales with corpus size since each metric often requires multiple LLM calls. I mitigate this by periodically spot-checking LLM-judge scores against human ratings to confirm they're still correlated, using a stronger/different model as the judge than the one being evaluated (to reduce self-preference bias), averaging over multiple runs for noisy metrics, and treating RAGAS scores as one input to a decision, not the sole source of truth — I always pair them with human review of a sample of actual transcripts before shipping a change.
+`,
+},
+]
+},
+{
+category: 'aiEngineering',
+title: 'GenAI Interview Guide — Testing LLM / RAG / Agentic Systems',
+subItems: [
+{
+question: 'How is testing an LLM-based application fundamentally different from testing traditional software, and how do you adapt your strategy?',
+important: true,
+answerMd: `
+### Figure 8. Testing pyramid for LLM/RAG/agentic systems
+
+\`\`\`mermaid
+flowchart BT
+    A[Deterministic Unit Tests<br/>parsers, routing logic, guardrails,<br/>retrieval functions with mocked embeddings<br/><i>fast, cheap, runs every commit</i>] --> B[Schema / Property-Based Tests<br/>structured-output validation,<br/>tool-call argument constraints]
+    B --> C[Tool-Selection Tests<br/>mocked tool layer records calls;<br/>assert correct tool + argument constraints]
+    C --> D[Golden-Dataset Regression<br/>labeled scenarios scored with RAGAS/LLM-judge;<br/>track metric trends over time]
+    D --> E[Live-LLM / Adversarial Eval<br/>scheduled runs, not per-commit;<br/>red-teaming, prompt-injection, jailbreak probes<br/><i>slow, expensive, non-deterministic</i>]
+\`\`\`
+
+Traditional tests assert exact output equality; LLM outputs are non-deterministic and there's rarely a single correct answer, so exact-match assertions are usually the wrong tool except for structured/deterministic sub-components (schema validation, tool-call argument correctness, retrieval hit/miss). I adapt by testing at multiple layers with different techniques: deterministic unit tests for anything non-generative (parsers, routing logic, guardrails, retrieval functions with mocked embeddings), property/schema-based assertions for structured outputs, semantic similarity or LLM-judge scoring for open-ended generation quality, and golden-dataset regression suites that track metric trends over time rather than expecting a fixed pass/fail per case. I also treat prompts and model versions as things that need their own change-tracking/versioning, since they're effectively "code" that changes behavior.
+
+**Code: LLM-as-judge scoring for open-ended answer quality (pytest)**
+\`\`\`python
+import pytest
+from pydantic import BaseModel
+
+class JudgeVerdict(BaseModel):
+    score: int  # 1-5
+    reasoning: str
+
+JUDGE_PROMPT = """You are grading an AI answer for factual accuracy and
+helpfulness against a reference answer. Score 1 (bad) to 5 (excellent).
+Question: {question}
+Reference answer: {reference}
+Candidate answer: {candidate}
+"""
+
+def judge(question, reference, candidate) -> JudgeVerdict:
+    judge_llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    structured = judge_llm.with_structured_output(JudgeVerdict)
+    return structured.invoke(JUDGE_PROMPT.format(
+        question=question, reference=reference, candidate=candidate))
+
+@pytest.mark.parametrize("case", load_golden_dataset("eval_set.jsonl"))
+def test_answer_quality(case):
+    candidate = rag_chain.invoke(case["question"])
+    verdict = judge(case["question"], case["reference_answer"], candidate)
+    # Track the score as a metric trend, not a hard pass/fail per case:
+    log_eval_metric(case["id"], verdict.score)
+    assert verdict.score >= 3, f"Low-quality answer: {verdict.reasoning}"
+\`\`\`
+`,
+},
+{
+question: 'How do you test an agent\'s tool-calling behavior (does it call the right tool with the right arguments at the right time)?',
+answerMd: `
+I build a labeled dataset of (scenario, expected tool, expected argument constraints) pairs — not necessarily exact argument matches, but constraints (e.g., date must be in the future, \`ticket_id\` must match a regex, or "must NOT call the delete tool for a read-only request"). I run the agent against each scenario with a mocked tool layer that records calls instead of executing them, then assert against those constraints. This separates "did the agent make the right decision" from "did the underlying tool implementation work," which should be tested independently with normal unit tests. I also specifically test negative cases — inputs where the agent should NOT call a tool at all, or should ask a clarifying question instead — since over-eager tool calling is a common failure mode.
+
+**Code: pytest-style test asserting correct tool selection with a mocked tool layer**
+\`\`\`python
+import pytest
+from unittest.mock import patch
+
+@pytest.mark.parametrize("user_input,expected_tool,arg_check", [
+    ("What's the status of ticket 4821?", "get_ticket_status",
+     lambda args: args["ticket_id"] == "4821"),
+    ("Delete my account right now", None,  # should NOT call any tool
+     lambda args: True),
+    ("Create a high priority ticket about login failures", "create_ticket",
+     lambda args: args["priority"] == "high"),
+])
+def test_agent_tool_selection(user_input, expected_tool, arg_check):
+    with patch("app.tools.execute_tool") as mock_tool:
+        mock_tool.return_value = {"status": "ok"}
+        agent.invoke({"messages": [("user", user_input)]})
+        if expected_tool is None:
+            mock_tool.assert_not_called()
+        else:
+            mock_tool.assert_called_once()
+            called_name, called_args = mock_tool.call_args[0]
+            assert called_name == expected_tool
+            assert arg_check(called_args)
+\`\`\`
+`,
+},
+{
+question: 'How do you regression-test prompts so that a \'small tweak\' doesn\'t silently break something else?',
+answerMd: `
+Maintain a golden dataset of representative + edge-case inputs with either expected outputs, expected properties, or previous-best-known-good outputs, and run it automatically on every prompt change, scoring with a mix of deterministic checks (format, required fields, forbidden content) and LLM-judge/similarity scoring for open-ended quality. Diff the new outputs against the previous version's outputs for the same inputs — not just against a static "gold" answer — so you can see exactly what changed in behavior, not just an aggregate score. I keep prompts in version control with the eval results attached to each version (a lightweight prompt-eval changelog), so any regression is traceable to a specific diff, and require the eval suite to run in CI before a prompt change merges, the same as code.
+`,
+},
+{
+question: 'How do you test for hallucination and groundedness specifically, at scale?',
+answerMd: `
+Automated: faithfulness-style checks (RAGAS faithfulness or a custom NLI-based entailment check) that decompose the answer into claims and verify each against the source context — flag anything not entailed. I also run adversarial cases deliberately: questions where the correct answer is "I don't know because it's not in the provided context," and check the model doesn't fabricate an answer instead — this is one of the highest-value test categories because it's a common and dangerous failure mode. At scale, I sample a percentage of production traffic for human review on a rolling basis (not just pre-launch), since hallucination patterns shift as the corpus and query distribution evolve, and treat any confirmed hallucination as a candidate for the regression eval set going forward.
+`,
+},
+{
+question: 'How would you design a red-teaming / adversarial testing process for an agentic system with tool access before it goes to production?',
+important: true,
+answerMd: `
+- **Prompt injection**: feed adversarial instructions through untrusted inputs (retrieved documents, tool outputs, user messages) and verify the agent doesn't follow embedded instructions that contradict its system prompt/intended scope.
+- **Privilege escalation**: attempt to get the agent to call tools outside its intended scope or with elevated arguments (e.g., trying to get a read-only assistant to trigger a write/delete action).
+- **Jailbreak attempts**: standard and domain-specific jailbreak prompts to check safety-behavior holds under adversarial phrasing.
+- **Resource exhaustion**: inputs designed to trigger infinite loops, excessive tool calls, or runaway token usage, verifying circuit breakers/limits actually fire.
+- **Data exfiltration**: check the agent can't be tricked into revealing system prompts, other users' data, or internal tool schemas/credentials.
+- I'd run this as a recurring exercise (not just pre-launch), track findings the same as security vulnerabilities with severity ratings, and add confirmed exploits to the permanent regression suite.
+`,
+},
+{
+question: 'What\'s your strategy for load/performance testing an LLM-backed API, and what do you watch for that\'s different from a normal REST API?',
+answerMd: `
+Standard load testing tools (k6, Locust) still apply for request rate/concurrency, but I watch different signals: time-to-first-token and inter-token latency separately from total latency (since streaming UX depends on the former even if total time is longer), token-level throughput vs. request-level throughput, and provider-side rate limit/queueing behavior under load (LLM APIs often degrade via increased latency or 429s before hard failures). I also test with realistic prompt/context sizes, not tiny toy prompts, since latency and cost scale with input+output tokens, and specifically test the failure/retry path (provider timeout, rate limit) to confirm backoff and fallback (e.g., to a smaller model or cached response) actually work under sustained load, not just in a single manual test.
+`,
+},
+]
+},
+{
+category: 'aiEngineering',
+title: 'GenAI Interview Guide — Performance Engineering',
+subItems: [
+{
+question: 'Where does latency actually come from in a RAG pipeline, and how do you attack each source?',
+important: true,
+answerMd: `
+### Figure 9. Performance engineering: latency sources & tiered model routing
+
+\`\`\`mermaid
+flowchart LR
+    A[Embed Query<br/><i>batch / cache repeated queries</i>] --> B[Retrieval<br/>vector DB<br/><i>HNSW tuning, colocate w/ app</i>]
+    B --> C[Reranking<br/>cross-encoder<br/><i>smaller candidate set, lighter model</i>]
+    C --> D[Context Assembly<br/><i>token-budget mgmt, top-k not 'just in case'</i>]
+    D --> E[LLM Generation<br/><i>stream tokens (low TTFT), smallest model that clears bar</i>]
+\`\`\`
+
+\`\`\`mermaid
+flowchart LR
+    REQ[Incoming Request] --> ROUTER[Cheap Classifier / Router<br/>complexity score]
+    ROUTER -->|simple, most traffic| SMALL[Small / Fast Model<br/>classification, extraction, routing]
+    ROUTER -->|complex, ambiguous, high-stakes| LARGE[Large / Frontier Model<br/>minority of traffic]
+\`\`\`
+
+- **Embedding the query** — usually small, but batch/cache repeated queries where possible.
+- **Retrieval (vector DB round trip)** — optimize index type (HNSW parameters), colocate the vector DB with the app to cut network hops, and cap candidate set size to what reranking actually needs.
+- **Reranking (cross-encoder)** — the biggest hidden cost if candidate sets are large; reduce candidate count, use a lighter/distilled reranker, or run it async/parallel with other steps where possible.
+- **LLM generation** — dominant cost for most pipelines; reduce input context to only what's needed (aggressive but accurate top-k, not "just in case" over-retrieval), use streaming so perceived latency (time-to-first-token) is low even if total generation takes longer, and pick the smallest model that meets the quality bar rather than defaulting to the largest.
+- I always profile with real tracing (e.g., LangSmith spans, OpenTelemetry) to see the actual per-stage breakdown before optimizing — guessing which stage is slow is usually wrong.
+
+**Code: OpenTelemetry span instrumentation to find the slow stage**
+\`\`\`python
+from opentelemetry import trace
+
+tracer = trace.get_tracer("rag-pipeline")
+
+def answer_query(question: str) -> str:
+    with tracer.start_as_current_span("embed_query"):
+        query_vec = embed(question)
+
+    with tracer.start_as_current_span("retrieval") as span:
+        docs = vectorstore.similarity_search_by_vector(query_vec, k=30)
+        span.set_attribute("num_candidates", len(docs))
+
+    with tracer.start_as_current_span("rerank") as span:
+        docs = reranker.rerank(question, docs, top_k=8)
+        span.set_attribute("num_reranked", len(docs))
+
+    with tracer.start_as_current_span("llm_generation") as span:
+        answer = llm.invoke(build_prompt(question, docs))
+        span.set_attribute("input_tokens", answer.usage.prompt_tokens)
+        span.set_attribute("output_tokens", answer.usage.completion_tokens)
+
+    return answer.content
+# Per-stage span durations show exactly where p50/p95 latency is going —
+# profile before guessing which stage (retrieval vs. rerank vs. LLM) to optimize.
+\`\`\`
+`,
+},
+{
+question: 'How do you decide between a bigger/smarter model and a smaller/faster model for a given task, in cost and latency terms?',
+answerMd: `
+I start from the task's actual accuracy requirement and latency SLA, then evaluate the smallest model that clears the accuracy bar on my eval set — not the largest available model by default. For many well-scoped sub-tasks (classification, extraction, routing, simple tool-argument generation), a small/fast model performs comparably to a frontier model at a fraction of the cost and latency. I use a tiered/router approach where feasible: a cheap model or classifier decides task complexity, routing simple requests to a small model and only escalating genuinely hard/ambiguous cases to a larger model — this is often the single biggest cost lever in a mature system, since most real traffic is simpler than the hardest cases the team designed around.
+`,
+},
+{
+question: 'What caching strategies do you use in an LLM application, and what are the risks of caching LLM responses?',
+answerMd: `
+Layers I use: exact-match caching for identical prompts (common in high-traffic, low-variance endpoints), semantic caching (cache hit on embedding-similarity above a threshold, not just exact match) for near-duplicate queries, and caching intermediate artifacts — embeddings, retrieval results, tool outputs — separately from the final LLM response, since those are often reusable even when the final generation differs.
+
+Risks: semantic caching can return a subtly wrong answer for a query that's similar-but-not-identical (a threshold that's too loose causes false-positive cache hits), caching can serve stale data if underlying documents change without cache invalidation tied to the source data's freshness, and caching personalized or context-dependent responses across users can leak information if the cache key doesn't properly scope by user/tenant/permissions.
+
+**Code: Simple semantic cache with a similarity threshold and per-tenant scoping**
+\`\`\`python
+import numpy as np
+
+class SemanticCache:
+    def __init__(self, embedder, threshold=0.95):
+        self.embedder = embedder
+        self.threshold = threshold
+        self.entries = []  # [(tenant_id, embedding, query, response)]
+
+    def get(self, tenant_id: str, query: str):
+        query_vec = self.embedder.embed(query)
+        best_score, best_response = 0.0, None
+        for tid, vec, cached_query, response in self.entries:
+            if tid != tenant_id:  # never cross tenant boundaries
+                continue
+            score = cosine_similarity(query_vec, vec)
+            if score > best_score:
+                best_score, best_response = score, response
+        if best_score >= self.threshold:
+            return best_response
+        return None
+
+    def set(self, tenant_id: str, query: str, response: str):
+        vec = self.embedder.embed(query)
+        self.entries.append((tenant_id, vec, query, response))
+
+def cosine_similarity(a, b):
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+\`\`\`
+`,
+},
+{
+question: 'How do you optimize token usage/cost without hurting answer quality?',
+answerMd: `
+Trim retrieved context to genuinely relevant chunks (better retrieval/reranking reduces the k you need to pass, which is more effective than truncating a bad retrieval set), summarize or compress long conversation history instead of replaying it verbatim every turn, use shorter system prompts refined through eval-driven iteration rather than accumulating instructions defensively over time, and cache/reuse static prompt prefixes where the provider supports prompt caching (which discounts repeated prefix tokens). I also measure cost per successful outcome, not just cost per call — a cheaper-but-lower-quality path that requires more retries or user follow-ups can end up more expensive overall, so optimization has to be judged against the eval suite, not tokens in isolation.
+`,
+},
+{
+question: 'How do you handle rate limits and provider outages in a production system that depends on a third-party LLM API?',
+answerMd: `
+Implement exponential backoff with jitter on 429/5xx responses, respect provider-supplied retry-after headers, and set circuit breakers so sustained failures stop hammering a degraded provider and fail fast/fallback instead of queueing indefinitely. For resilience, I design a fallback chain (primary model/provider → secondary provider or smaller local model → cached/canned response) for critical paths, and keep provider-specific logic behind an abstraction so a full provider failover doesn't require an app redeploy. I also proactively manage rate limits with client-side request queuing/throttling tuned below the actual provider limit, rather than relying purely on reactive retries, and monitor provider status pages/webhooks to detect degradation before it shows up as user-facing errors.
+`,
+},
+{
+question: 'How do you benchmark and compare throughput across different vector databases or LLM serving setups in a way that\'s actually representative?',
+answerMd: `
+Benchmark with production-representative data volume, dimensionality, and query patterns — not a toy dataset, since index behavior (especially HNSW recall/latency trade-offs) changes meaningfully with scale. I test at multiple concurrency levels to find the throughput/latency knee, not just a single-request latency number, and measure p50/p95/p99 separately since tail latency is usually what breaks user experience even when the average looks fine. For LLM serving, I compare on the metrics that matter for the use case — time-to-first-token for chat UIs, total throughput (tokens/sec) for batch workloads — and always include cost per unit of throughput in the comparison, since raw speed without cost context isn't a complete answer for a production decision.
+`,
+},
+]
+},
+{
+category: 'aiEngineering',
+title: 'GenAI Interview Guide — Troubleshooting & Production Architecture',
+subItems: [
+{
+question: 'Users are reporting the assistant is \'slow today\' but your dashboards show normal average latency. How do you investigate?',
+important: true,
+answerMd: `
+### Figure 5. Reference production architecture for an agentic system
+
+\`\`\`mermaid
+flowchart TB
+    CLIENT[Client<br/>Web / Mobile / API] --> GW[API Gateway<br/>auth, rate limit]
+    GW --> ORCH[Orchestrator<br/>LangGraph agent: supervisor<br/>+ tool nodes + checkpointer]
+    ORCH --> RET[Retriever / Vector DB<br/>RAG]
+    ORCH --> MCP[MCP / Tool Layer<br/>scoped actions]
+    RET --> EXT[Internal / External Systems]
+    MCP --> EXT
+    ORCH --> CP[(Checkpoint Store<br/>Postgres / Redis)]
+    ORCH --> JQ[Async Job Queue<br/>long-running agentic tasks]
+    subgraph CROSS["Applies across every layer"]
+      OBS[Observability<br/>tracing, token/cost/latency metrics,<br/>faithfulness sampling]
+      GRD[Guardrails<br/>schema validation, business rules,<br/>human approval, circuit breakers]
+      EVAL[Eval / CI-CD<br/>golden eval set, canary rollout,<br/>versioned prompts & config]
+    end
+\`\`\`
+
+Averages hide tail latency, so first I check p95/p99, not just mean/median — a small percentage of very slow requests often drives user-perceived "slowness" even when the average is fine. I'd segment by dimension (time of day, user tenant, query type, model/provider version, region) to find whether the slowness is uniform or concentrated in a subset — concentrated slowness usually points to a specific cause (a particular retrieval path, a specific provider region, a large-context subset of queries). I'd check for silent retries (a request that eventually succeeds after 2 retries looks "successful" in success-rate dashboards but is 3x slower) and confirm whether upstream provider latency itself has degraded, using provider status/latency dashboards as an independent signal before assuming the problem is in our own stack.
+`,
+},
+{
+question: 'What does your observability stack look like for a production RAG/agentic system? What do you actually need to log/trace?',
+answerMd: `
+- **Full request tracing with spans per stage**: query, retrieval (with actual chunks/scores returned), reranking, prompt sent to the LLM (the literal final prompt, not the template), model response, tool calls and their arguments/results, and total latency/token/cost per stage.
+- **Structured logs** correlated by a request/trace ID across every service hop, so you can reconstruct a single user interaction end to end.
+- **Quality signals**: user feedback (thumbs up/down), automated groundedness/faithfulness scores sampled on a rolling basis, and flags for guardrail triggers.
+- **System health**: token usage and cost per request/tenant, provider error rates and latency, vector DB query latency and cache hit rates.
+- **Tools**: something like LangSmith/Langfuse/OpenTelemetry-based tracing purpose-built for LLM apps, since generic APM tools often don't surface prompt/token-level detail well.
+`,
+},
+{
+question: 'Design a production architecture for an agentic customer-support assistant that can look up order data, issue refunds, and escalate to a human. Walk through the components and where you\'d put safeguards.',
+important: true,
+answerMd: `
+Front door: an API gateway handling auth and rate limiting. Orchestration layer: a LangGraph agent with explicit nodes for intent classification, order lookup (read-only tool), refund issuance (write tool, gated), and escalation. State/memory: a checkpointer (Postgres-backed) for conversation persistence and resumability. Tools: narrowly scoped MCP or direct tool integrations against internal APIs, each with server-side validation independent of what the model outputs — never trust the model's arguments as final.
+
+Safeguards: a human-in-the-loop interrupt before the refund node for anything above a dollar threshold, a hard business-rule check (max refund amount, one refund per order) enforced in code rather than by prompting the model to "be careful," full audit logging of every action taken with the state that led to it, and a fallback path to human escalation whenever the model's confidence is low or the situation falls outside its defined scope. Observability: tracing across the whole flow plus real-time alerting on anomalies like refund-rate spikes.
+`,
+},
+{
+question: 'The vector database query latency has gradually crept up over three months. How do you diagnose and fix it?',
+answerMd: `
+Gradual creep usually correlates with index growth, so I'd first check index size over time against the latency trend — if they track together, it's likely an indexing/parameter issue rather than a code regression. For HNSW-based indexes, growing corpus size without retuning parameters (\`ef_search\`, \`M\`) degrades query latency; I'd check whether index parameters were tuned for the original, smaller corpus and need retuning or a switch to a more scalable index structure.
+
+I'd also check for un-deleted "zombie" vectors from documents that were logically deleted but never removed from the index (common when soft-deletes aren't propagated to the vector store), fragmentation from high update/delete churn without periodic index rebuilds/compaction, and whether metadata filter cardinality has grown (filtering on a field with many distinct values can slow queries in some vector DBs). Fix is usually some combination of reindexing/compaction, parameter retuning, and possibly sharding/scaling the deployment.
+`,
+},
+{
+question: 'How do you do safe rollouts for a change to the RAG pipeline or agent logic (e.g., new prompt, new retriever) in production?',
+answerMd: `
+Never ship a pipeline change straight to 100% of traffic. I run the eval suite first as a gate, then do a canary/shadow rollout: shadow mode first (run the new pipeline in parallel on live traffic without serving its output, comparing quality/latency/cost against the current version), then a small percentage canary (1-5%) with real user traffic, monitoring quality signals (thumbs down rate, faithfulness sampling, latency, cost) alongside standard system metrics, before progressively ramping. I keep the rollout behind a feature flag so it's an instant rollback, not a redeploy, if metrics regress, and I version prompts/pipeline configs explicitly so I can always answer "which exact configuration produced this response" during an incident post-mortem.
+`,
+},
+{
+question: 'How would you architect a system to support both real-time chat responses and long-running agentic tasks (e.g., a multi-step research task that takes 10 minutes) in the same product?',
+answerMd: `
+I'd separate the synchronous and asynchronous paths architecturally rather than forcing both through the same request/response cycle. Real-time chat: standard streaming request/response with a tight latency budget. Long-running agentic tasks: submit as a job (queue-backed, e.g., via a task queue or LangGraph's checkpointed execution running in a worker), return a task ID immediately, and let the client poll or subscribe (websocket/SSE) for progress updates as the graph executes and emits intermediate state. This also naturally supports pause/resume and human-in-the-loop approval steps mid-task, since the execution state is checkpointed rather than held in a live request's memory. I'd make sure both paths share the same underlying tools/retrieval/guardrail logic so behavior is consistent, differing only in the execution/transport layer.
+`,
+},
+]
+},
+{
+category: 'aiEngineering',
+title: 'GenAI Interview Guide — Agentic AI',
+subItems: [
+{
+question: 'How do you define \'agentic\' in a way that\'s actually useful for a design discussion, rather than just a buzzword?',
+important: true,
+answerMd: `
+### Figure 4. The core agentic control loop
+
+\`\`\`mermaid
+flowchart TD
+    IN[User Goal / Task Input] --> REASON[Reason<br/>LLM plans next step,<br/>selects a tool]
+    REASON --> ACT[Act<br/>call a tool / MCP server / retrieval]
+    ACT --> OBS[Observe<br/>tool result, error, new data]
+    OBS --> REFLECT{Reflect: is the<br/>goal met?}
+    REFLECT -->|not done: loop back| REASON
+    REFLECT -->|goal met| DONE[Final Answer / Action Complete]
+\`\`\`
+*Guardrails: max-step limit, loop detection on repeated tool+args, human approval before high-risk actions. This is the pattern underneath ReAct, plan-and-execute, and most tool-using agents.*
+
+I define it by degree of autonomy in a loop: the system observes state, reasons about what to do next, takes an action (often via a tool), observes the result, and decides whether to continue or stop — with the LLM, not fixed code, making the control-flow decisions at each step. A simple RAG call is not agentic (fixed one-shot pipeline); a system that decides how many retrieval rounds it needs, which tools to call, and when it's confident enough to answer is agentic. The useful design question is never "is this agentic or not," it's "how much autonomy does this specific step actually need," because more autonomy trades predictability and cost for flexibility, and unnecessary autonomy is a liability, not a feature.
+`,
+},
+{
+question: 'What are the common agent design patterns, and when do you pick one over another?',
+answerMd: `
+- **ReAct (reason + act loop)** — general-purpose, good default for tool-using agents where the next action depends on the result of the previous one.
+- **Plan-and-execute** — the agent plans the full task upfront, then executes steps, replanning only if something fails; better for tasks where the steps are largely predictable and you want lower latency/cost than reasoning at every single step.
+- **Reflection/self-critique** — the agent (or a second LLM call) reviews its own output against criteria and revises before finalizing; useful when quality matters more than latency/cost, e.g., code generation or long-form writing.
+- **Multi-agent/supervisor pattern** — a coordinator delegates to specialist sub-agents; useful when the task naturally decomposes into distinct expertise areas (research vs. writing vs. coding) and you want isolated context/tools per specialist.
+- **Router/orchestrator (non-looping)** — a single classification step routes to a fixed downstream path; use this when the decision space is well-understood and doesn't need iterative reasoning — it's cheaper and more predictable than a full agent loop.
+
+**Code: Bare-bones ReAct loop (reason → act → observe) with a hard step limit**
+\`\`\`python
+MAX_STEPS = 8
+
+def run_agent(task: str, tools: dict) -> str:
+    messages = [{"role": "user", "content": task}]
+    for step in range(MAX_STEPS):
+        response = llm.invoke(messages, tools=list(tools.values()))
+        if response.tool_calls:
+            for call in response.tool_calls:
+                tool_fn = tools[call.name]
+                try:
+                    result = tool_fn(**call.args)
+                except Exception as e:
+                    result = f"ERROR: {e}"  # fed back, not swallowed
+                messages.append({"role": "tool", "name": call.name, "content": str(result)})
+        else:
+            return response.content  # model produced a final answer
+    return "Stopped: reached max steps without completing the task."
+\`\`\`
+`,
+},
+{
+question: 'How do you decide how much autonomy to give an agent — i.e., when do you require human approval vs. let it act independently?',
+important: true,
+answerMd: `
+I frame it as a risk/reversibility matrix: low-risk, easily reversible actions (searching, drafting, reading data) can run fully autonomously; high-risk or hard-to-reverse actions (sending external communications, financial transactions, deleting data, anything touching a customer-facing system) require human approval regardless of how confident the model is, because model confidence isn't a reliable proxy for correctness. I also scale autonomy with track record — a new agent capability starts with mandatory human review on every action, and I only relax that to sampling-based review or full autonomy after it's demonstrated reliability against real outcomes over time, not just against an offline eval set.
+`,
+},
+{
+question: 'How do you evaluate an agent\'s end-to-end task success, as opposed to evaluating a single LLM response?',
+answerMd: `
+Single-response metrics (faithfulness, relevancy) matter for individual steps, but agent evaluation needs task-level outcome metrics: did the agent actually accomplish the stated goal (task success rate against a labeled set of scenarios with defined success criteria), how many steps/tool calls did it take (efficiency), did it recover gracefully from a failed tool call or dead end (robustness), and did it know when to stop/ask for help versus looping or guessing (calibration). I build scenario-based eval sets with explicit pass/fail criteria per scenario (not just an LLM-judge vibe score) wherever possible, since "did the refund actually get issued for the correct amount" is a checkable fact, not a subjective quality judgment — I reserve LLM-judge scoring for the genuinely subjective parts, like tone or clarity of the agent's final summary.
+`,
+},
+{
+question: 'How do you prevent an agent from getting stuck in unproductive loops, e.g., repeatedly calling the same failing tool or endlessly re-planning?',
+answerMd: `
+Structural limits first: hard caps on total steps/tool calls per task (and a recursion limit if using LangGraph), plus a distinct "tool call failed N times in a row" guard that routes to a fallback/escalation path rather than letting the agent keep retrying blindly. I have the agent track and reason over its own action history explicitly in state (not just rely on the model "remembering" via context) so a loop-detection check (same tool + same or similar arguments repeated) can trigger deterministically rather than hoping the model notices it's stuck. For replanning loops, I cap replanning attempts and require the replan to explain what's different this time versus the previous attempt, which both improves quality and gives you a clear signal to detect non-productive replanning (a generic non-answer to that prompt is itself the loop signal).
+`,
+},
+{
+question: 'How do agentic systems change your approach to cost control compared to a single-call LLM feature?',
+answerMd: `
+Cost in a single-call feature is bounded and predictable (one prompt, one completion); an agentic loop's cost is a function of how many steps it takes, which is variable and can blow up if the task is harder than expected or the agent gets stuck — so cost has to be actively bounded, not just monitored after the fact. I set per-task token/cost budgets enforced in code (abort or degrade gracefully when exceeded, not just log a warning), use the smallest capable model for intermediate reasoning/tool-selection steps and reserve the most capable model for the step that actually needs it (e.g., final synthesis), and track cost per successfully completed task (not per call) as the north star metric, since a cheaper-per-call agent that fails more often and needs re-runs can be more expensive overall.
+`,
+},
+{
+question: 'Give an example of an agentic system you\'d be cautious about deploying with high autonomy, and explain the specific risk.',
+answerMd: `
+Any agent with both broad data access and write/action capability on external-facing systems — e.g., an agent that can read a customer's full account history and also has authority to modify account settings or issue payments — is the highest-risk combination, because a single reasoning error compounds directly into a real-world, potentially irreversible action, and the blast radius scales with how much access it has. My caution isn't "don't build it," it's insisting on narrow tool scopes (separate read and write tools, never a combined do-anything tool), mandatory human approval on the write path until there's a long track record, hard business-rule guardrails enforced outside the model, and comprehensive audit logging — the same defense-in-depth I'd want for a human employee with that level of access, not less.
+`,
+},
+]
+},
+
+// ── Existing AI Engineering cards ──
+{
   category: 'aiEngineering',
   title: 'RAG (Retrieval-Augmented Generation)',
   important: true,
@@ -34180,11 +35142,9 @@ A **jailbreak** is the user themselves trying to get the model to violate its ow
     {
       question: '15. Benefit Explainability Solution Architecture — Sydney VA end-to-end flow (IBM Watson, APIGEE/A2A, 10xE Azure environment)',
       important: true,
-      imageUrls: ['/assets/BenefitExplainabilityArchitecture.png'],
+      imageUrls: ['/assets/try.png'],
       answerMd: `
 # Benefit Explainability Solution Architecture — Sydney VA
-
-![Benefit Explainability Solution Architecture](/assets/BenefitExplainabilityArchitecture.png)
 
 ## 🧭 End-to-End Flow
 1. **Sydney VA** — the member logs into the Sydney portal and submits a question to the virtual assistant (e.g. "how do I plan for a promo/program covered under my plan?").
