@@ -35166,6 +35166,247 @@ A **jailbreak** is the user themselves trying to get the model to violate its ow
     },
   ]
 },
+  {
+    category: 'aiEngineering',
+    title: 'Cheat Sheet — RAG, MCP, Agentic AI, LangGraph, Testing & Evaluation',
+    important: true,
+    subItems: [
+      {
+        question: '1. RAG — one-page recap',
+        important: true,
+        answerMd: `
+# RAG Cheat Sheet
+
+## 🧭 Pipeline
+\`\`\`plaintext
+Query → Query Transform → Retrieval → Rerank → Context Assembly → Generation → Citations
+\`\`\`
+
+## 🗂️ Core Components
+| Stage | Options |
+|---|---|
+| Chunking | Fixed-size, recursive-split, semantic, structure-aware (200–800 tokens, 10–20% overlap) |
+| Embeddings | text-embedding-3, Cohere embed-v3, BGE, E5, Voyage |
+| Vector Store | Pinecone, Weaviate, Qdrant, Milvus, pgvector, FAISS, Chroma |
+| Retrieval | Dense (embedding sim), Sparse (BM25), Hybrid (RRF fusion) |
+| Reranking | Cross-encoders — Cohere Rerank, BGE-reranker |
+| Query Transform | HyDE, multi-query expansion, decomposition, step-back prompting |
+
+## 🚀 Advanced Patterns
+- **Agentic RAG** — model decides whether/when/how many times to retrieve
+- **Corrective RAG (CRAG)** — critiques retrieved docs, re-retrieves if irrelevant
+- **Graph RAG** — multi-hop reasoning over a knowledge graph
+- **Parent-child chunking** — retrieve small, return larger parent context
+
+## ⚠️ Failure Modes
+Chunking breaks semantic units · embedding/domain mismatch · "lost in the middle" · skipping reranking · stale index.
+
+> **In one sentence:** RAG grounds generation in retrieved external context — quality lives or dies on chunking, hybrid retrieval, and reranking, not on the LLM itself.
+`
+      },
+      {
+        question: '2. MCP (Model Context Protocol) — one-page recap',
+        important: true,
+        answerMd: `
+# MCP Cheat Sheet
+
+## 🧭 Architecture
+\`\`\`plaintext
+MCP Host (Claude Desktop/Code) → MCP Client (1:1) → MCP Server → Underlying system (DB, API, filesystem, SaaS)
+\`\`\`
+
+## 🗂️ What a Server Exposes
+| Primitive | Purpose |
+|---|---|
+| Tools | Executable functions the model can call |
+| Resources | Read-only data the client can fetch (files, DB rows, docs) |
+| Prompts | Reusable prompt templates the server provides |
+
+## 🔌 Transport
+- **stdio** — local process, simplest, local tools
+- **HTTP / Streamable HTTP (SSE)** — remote, hosted servers, OAuth-friendly
+
+## ✅ Why It Matters
+Decouples tools from models: N tools × M models → N+M integrations instead of N×M. Standardized discovery, schema (JSON-RPC 2.0), and auth.
+
+## ⚠️ Security
+Treat every MCP server as an **untrusted input surface** — tool *results* can carry hidden instructions (indirect prompt injection). Sandbox/validate outputs before feeding back to the model; least-privilege credentials per server.
+
+> **In one sentence:** MCP is the standard "port" that lets any model talk to any tool/data source through Tools, Resources, and Prompts — powerful, but tool results must be treated as data, never as trusted commands.
+`
+      },
+      {
+        question: '3. Agentic AI — one-page recap',
+        important: true,
+        answerMd: `
+# Agentic AI Cheat Sheet
+
+## 🔁 Core Loop (ReAct)
+\`\`\`plaintext
+Thought → Action (tool call) → Observation → Thought → ... → Final Answer
+\`\`\`
+
+## 🏗️ Architecture Patterns
+| Pattern | Description |
+|---|---|
+| Single agent + tools | One loop, simplest |
+| Planner–Executor | Planning model separate from tool-calling model |
+| Multi-agent / Supervisor | Router dispatches to specialist sub-agents |
+| Reflection | Agent critiques its own output, retries with feedback |
+| Hierarchical | Manager decomposes → delegates to worker agents |
+
+## 🎛️ Design Concerns
+- **Tools**: fewer, well-scoped, clearly documented > many overlapping ones
+- **Memory**: short-term (scratchpad/context) vs long-term (episodic, semantic, procedural)
+- **Guardrails**: max-iteration limits, cost/token budgets, human-in-the-loop for risky actions
+- **Risk-tiering**: low-risk actions auto-execute; high-risk actions need approval
+
+## ⚠️ Failure Modes
+Infinite/looping tool calls · context bloat from accumulated observations · compounding errors over long chains · hallucinated tools/params.
+
+> **In one sentence:** agentic AI is an LLM in a plan → act → observe loop with tool access — the engineering is mostly about bounding that loop (guardrails, risk tiers, memory hygiene) so autonomy doesn't become runaway cost or runaway risk.
+`
+      },
+      {
+        question: '4. LangGraph — one-page recap',
+        important: true,
+        answerMd: `
+# LangGraph Cheat Sheet
+
+## 🧱 Building Blocks
+| Concept | Description |
+|---|---|
+| State | Typed object (TypedDict/Pydantic) passed between nodes |
+| Nodes | Functions (LLM calls, tool calls) that read/update state |
+| Edges | Fixed or **conditional** transitions between nodes |
+| Graph | Compiled nodes+edges into a runnable state machine |
+| Checkpointer | Persists state — pause/resume, "time travel" debugging |
+
+## 🧩 Minimal Pattern
+\`\`\`python
+from langgraph.graph import StateGraph, END
+
+class State(TypedDict):
+    messages: list
+
+graph = StateGraph(State)
+graph.add_node("agent", call_model)
+graph.add_node("tools", call_tools)
+graph.set_entry_point("agent")
+graph.add_conditional_edges("agent", should_continue, {"continue": "tools", "end": END})
+graph.add_edge("tools", "agent")
+app = graph.compile(checkpointer=MemorySaver())
+\`\`\`
+
+## ✅ Why LangGraph over Plain Chains
+Explicit **cycles** (needed for ReAct-style loops, not just DAGs) · native **human-in-the-loop** (\`interrupt()\`) · **persistence** for long-running/paused workflows · built-in **streaming**.
+
+## 🏗️ Common Patterns
+Supervisor (router → specialists) · Reflection (generate → critique → loop) · Map-reduce (fan-out/fan-in) · Human approval gate before sensitive tool calls.
+
+> **In one sentence:** LangGraph models agent workflows as a graph with persistent, typed state — its edge over a plain chain is native support for loops, interruption, and checkpointed resumability.
+`
+      },
+      {
+        question: '5. Testing LLM / RAG / Agentic Systems — one-page recap',
+        important: true,
+        answerMd: `
+# Testing Cheat Sheet
+
+## 🧪 Testing Layers
+| Layer | What to Test |
+|---|---|
+| Unit | Deterministic helpers — chunkers, parsers, tool wrappers |
+| Component | Retriever precision/recall in isolation; single tool-call correctness |
+| Integration | Full pipeline end-to-end on realistic inputs |
+| Regression | Golden dataset run on every change |
+| Adversarial / Red-team | Prompt injection, jailbreaks, malformed inputs |
+| Load / Latency | Concurrency, throughput, timeout handling |
+
+## 🛠️ Techniques
+- **Golden datasets** — curated, human-reviewed input/output pairs
+- **LLM-as-judge** — strong model scores outputs against a rubric (calibrate against human judgment)
+- **Assertion-based checks** — valid JSON, correct tool + args, citation present — not exact string match
+- **Snapshot/regression testing** — catch drift after prompt/model changes
+- **Trace-based debugging** — full trajectory logs (LangSmith, Langfuse, Arize Phoenix)
+
+## 🤖 Agent-Specific
+Tool-call accuracy (right tool/args/order) · task completion rate · failure/recovery behavior · max-step/loop-limit compliance.
+
+> **In one sentence:** testing agentic/RAG systems layers deterministic unit tests with LLM-as-judge and trace-based evaluation on golden + adversarial datasets, because exact-match testing doesn't work on open-ended generation.
+`
+      },
+      {
+        question: '6. Performance Evaluation — one-page recap',
+        important: true,
+        answerMd: `
+# Performance Evaluation Cheat Sheet
+
+## 📊 RAG Metrics (RAGAS / TruLens / DeepEval / ARES)
+| Metric | Measures |
+|---|---|
+| Context Precision | Are retrieved chunks relevant? |
+| Context Recall | Was all necessary info retrieved? |
+| Faithfulness / Groundedness | Is the answer supported by context (no hallucination)? |
+| Answer Relevance | Does the answer address the query? |
+| MRR / NDCG / Hit Rate | Classic IR ranking quality of the retriever |
+
+## ✍️ Generation Quality
+Task success rate (best single metric) · BLEU/ROUGE (surface overlap, weak for open-ended text) · semantic similarity · LLM-as-judge (rubric, pairwise, or Likert).
+
+## 🤖 Agent-Specific Metrics
+Step efficiency (steps vs optimal) · tool-call precision/recall · cost per completed task · latency (p50/p95/p99) · human preference win-rate vs baseline.
+
+## ⚙️ Operational Metrics
+Cost ($/query, tokens in/out) · latency percentiles · error/timeout/fallback rate · quality drift over time.
+
+## ✅ Best Practices
+Held-out test sets only · combine automated + periodic human review · version prompts/models/data together · A/B test in production behind guardrails · evaluate retriever and generator separately to isolate the failure source.
+
+> **In one sentence:** evaluation splits into retrieval-quality metrics (precision/recall/faithfulness), generation-quality metrics (task success, LLM-as-judge), and operational metrics (cost/latency/reliability) — and the discipline that matters most is measuring each pipeline stage separately so you know *what* broke, not just *that* it broke.
+`
+      },
+      {
+        question: '7. Master summary — all six topics on one page',
+        important: true,
+        answerMd: `
+# Master Cheat Sheet — Quick Reference
+
+| Topic | Core Idea | Key Artifact |
+|---|---|---|
+| **RAG** | Ground generation in retrieved external context | Chunk → embed → hybrid retrieve → rerank → generate |
+| **MCP** | Standard protocol connecting models to tools/data | Host → Client → Server exposing Tools/Resources/Prompts |
+| **Agentic AI** | LLM plans, acts via tools, observes, iterates | Thought → Action → Observation loop, bounded by guardrails |
+| **LangGraph** | Graph-based orchestration with persistent state | StateGraph of nodes + conditional edges + checkpointer |
+| **Testing** | Verify non-deterministic systems reliably | Golden sets + LLM-as-judge + trace logs, layered from unit to adversarial |
+| **Evaluation** | Measure quality, not just "it ran" | Retrieval metrics + generation metrics + ops metrics, per-stage |
+
+## 🔗 How They Connect
+\`\`\`plaintext
+MCP servers  --tools/data-->  Agentic loop  --orchestrated by-->  LangGraph
+                                    |
+                                    v
+                          RAG retrieval (if grounded)
+                                    |
+                                    v
+                    Testing (does it work?) + Evaluation (how well?)
+\`\`\`
+
+## 🧰 Tool Map
+| Need | Tools |
+|---|---|
+| Vector DB | Pinecone, Qdrant, Weaviate, pgvector, Milvus |
+| RAG eval | RAGAS, TruLens, DeepEval, ARES |
+| Orchestration | LangGraph, LangChain, LlamaIndex, CrewAI, AutoGen |
+| Observability | LangSmith, Langfuse, Arize Phoenix, Helicone |
+| Tool connectivity | MCP servers, function calling |
+| Reranking | Cohere Rerank, BGE-reranker, Voyage rerank |
+
+> **In one sentence:** RAG and MCP feed an agentic loop with grounded knowledge and real-world tools, LangGraph gives that loop persistent, resumable structure, and testing plus evaluation are what turn "it seems to work" into a system you can trust in production.
+`
+      },
+    ],
+  },
 
 ];
 
