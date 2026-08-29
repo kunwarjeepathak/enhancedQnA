@@ -15,6 +15,314 @@ imageUrls?: string[];
 }
 
 const data: QACardData[] = [
+// ─────────────────────────────────────────────
+// PROJECT SPECIFIC ARCHITECTURE
+// ─────────────────────────────────────────────
+{
+  category: 'aiEngineering',
+  title: 'Project Specific Architecture',
+  important: true,
+  subItems: [
+    {
+      question: 'Benefit Explainability Solution Architecture — Sydney VA end-to-end flow (IBM Watson, APIGEE/A2A, 10xE Azure environment)',
+      important: true,
+      imageUrls: ['/assets/Final_benefit_explainability_architecture.png'],
+      answerMd: `
+# Benefit Explainability Solution Architecture — Sydney VA
+
+## 🧭 End-to-End Flow (Steps for Diagram)
+1. **Member interaction** — the member logs into the Sydney portal and submits a question to the Virtual Assistant (VA), such as *"Is a mammogram covered on my plan?"*
+2. **VA → Gen UI API** — the Virtual Assistant sends the member's query to the Gen UI API hosted in IBM Cloud.
+3. **Gen UI API → Meta agent** — the Gen UI API triggers the Meta Agent, which uses the Planner Agent to determine the appropriate action. For benefit-related questions, the Planner Agent routes the request to the **Benefit Agent**.
+4. **Benefit agent → 10xE orchestrator (via A2A) → MCP layer (5) → API layer (6)** — the Benefit Agent calls the 10xE Orchestrator using the A2A protocol.
+   - The 10xE Orchestrator invokes the MCP layer.
+   - The MCP layer calls the API layer to retrieve the requested benefit data.
+
+## 🖼 ASCII Architecture Diagram
+\`\`\`plaintext
+①
+┌────────────────┐        ┌──────────────────────────────────┐
+│   Sydney VA    │───────▶│  ③ IBM Watson                     │
+│ Member submits │        │  ┌─────────────┐  ┌─────────────┐ │
+│   question     │        │  │ IBM WatsonX │  │ Meta agent  │ │
+└───────┬────────┘        │  └─────────────┘  └─────────────┘ │      ④ Apigee / A2A
+        │②                │  ┌─────────────┐  ┌─────────────┐ │────────────────────┐
+        ▼                 │  │ Claims      │  │ Benefit     │ │                    │
+┌────────────────────┐    │  └─────────────┘  └─────────────┘ │                    ▼
+│ ELV enterprise API  │◀──┴─────────▲─────────────────────────┘   ┌──────────────────────────────────────────────────┐
+│  ┌────────────────┐ │             │                             │  10xE Azure environment                          │
+│  │    NLS API     │ │─────────────┘                             │ ┌────────────────────────────────────────────────┐│
+│  └────────────────┘ │                                           │ │ Infra layer                                    ││
+└──────────────────────┘                                          │ │ Azure fn app backend │ Key vault │ Security │  ││
+                                                                    │ │ Mongo DB Atlas                                ││
+                                                                    │ └────────────────────────────────────────────────┘│
+                                                                    │ ┌────────────────────────────────────────────────┐│
+                                                                    │ │ Agent layer                                    ││
+                                                                    │ │ Response generation tool │ Benefit coverage    ││
+                                                                    │ │ agent │ Orchestration agent │ EOC document     ││
+                                                                    │ │ agent │ MCP client │ Evaluation framework &   ││
+                                                                    │ │ monitoring                                     ││
+                                                                    │ └───────────────┬─────────────────┬─────────────┘│
+                                                                    │                 ▼                 ▼             │
+                                                                    │ ┌───────────────────────┐ ┌─────────────────────┐│
+                                                                    │ │ ⑤ MCP layer            │ │ ⑥ API layer          ││
+                                                                    │ │ Benefit coverage       │ │ NLS API              ││
+                                                                    │ │ Provider network       │◀│ Member profile       ││
+                                                                    │ │ Member profile         │▶│ Provider API         ││
+                                                                    │ │ Benefit mandates       │ │ MARS                 ││
+                                                                    │ │ Preauth                │ │ OMPTA                ││
+                                                                    │ └───────────┬────────────┘ └─────────────────────┘│
+                                                                    │             ▼                                    │
+                                                                    │ ┌────────────────────────────────────────────────┐│
+                                                                    │ │ Data ingestion layer                           ││
+                                                                    │ │ Azure function data layer │ Create embeddings │││
+                                                                    │ │ Landing zone                                   ││
+                                                                    │ └────────────────────────────────────────────────┘│
+                                                                    └──────────────────────────────────────────────────┘
+\`\`\`
+
+## 🧱 Layers Inside the 10xE Azure Environment
+| Layer | Role |
+|---|---|
+| **Agent layer** | Orchestrator, Benefit coverage agent, MCP client — decides which tools/agents to call and assembles the response |
+| **MCP layer** | Provider network, Benefit coverage, Data ingestion (embeddings, landing zone) — exposes domain tools over MCP |
+| **API layer** | Provider API, NLS API — the actual backend data-access endpoints |
+| **Infra layer** | Azure DB, MongoDB Atlas — storage backing the agent and MCP layers |
+| **Evaluation framework & monitoring** | Observability and evaluation harness wrapping the whole pipeline |
+
+> **In one sentence:** a member's question flows from the Sydney VA through IBM Watson's Meta/Benefit agents, across an APIGEE/A2A gateway, into the 10xE Azure environment where an orchestrated Agent → MCP → API layer stack (backed by Azure DB/MongoDB and wrapped in an evaluation/observability layer) retrieves and explains the member's benefit coverage.
+`
+    },
+    {
+      question: 'Code Flow — Simple RAG, Step by Step (runnable example)',
+      important: true,
+      answerMd: `
+# Code Flow — Simple RAG, Step by Step
+
+## 🧭 What This Builds
+The plain, non-agentic RAG pipeline: chunk → embed → store → retrieve → generate. No loop, no tool-calling — one pass through the pipeline per question. This is the baseline every other pattern (LangGraph agent, MCP-backed agent) builds on top of.
+
+## 🧱 Full Runnable Flow
+\`\`\`python
+# 1. Chunk the source document(s) — offline, done once
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+# 2. Embed the chunks — offline, done once
+from openai import OpenAI
+client = OpenAI()
+
+def embed(texts: list[str]) -> list[list[float]]:
+    resp = client.embeddings.create(model="text-embedding-3-small", input=texts)
+    return [d.embedding for d in resp.data]
+
+# 3. Store the vectors in an index (FAISS shown; swap for Pinecone/Qdrant/pgvector in prod)
+import faiss
+import numpy as np
+
+chunks = chunk_text(open("benefits_policy.txt").read())
+vectors = np.array(embed(chunks)).astype("float32")
+index = faiss.IndexFlatL2(vectors.shape[1])
+index.add(vectors)
+
+# 4. At query time — embed the question, retrieve the nearest chunks
+def retrieve(query: str, k: int = 5) -> list[str]:
+    q_vec = np.array(embed([query])).astype("float32")
+    _, idx = index.search(q_vec, k)
+    return [chunks[i] for i in idx[0]]
+
+# 5. Assemble a prompt that forces the model to answer from the retrieved text only
+def build_prompt(query: str, context_chunks: list[str]) -> str:
+    context = "\\n\\n".join(context_chunks)
+    return f"""Answer using ONLY the context below. If it's not there, say so.
+
+Context:
+{context}
+
+Question: {query}"""
+
+# 6. Generate the answer
+def answer_question(query: str) -> str:
+    prompt = build_prompt(query, retrieve(query))
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.choices[0].message.content
+
+print(answer_question("Is a mammogram covered on my plan?"))
+\`\`\`
+
+## 🗺️ Code Step → RAG Concept
+| Code step | RAG concept |
+|---|---|
+| \`chunk_text\` | Chunking — splits the source into retrievable units |
+| \`embed\` | Embeddings — converts text to "meaning coordinates" |
+| \`faiss.IndexFlatL2\` | Vector database — stores coordinates for fast nearest-neighbor search |
+| \`retrieve\` | Retrieval — finds the chunks closest to the question's embedding |
+| \`build_prompt\` | Context assembly — the "open-book exam" handed to the LLM |
+| \`answer_question\` | Generation — the LLM answers using only what it was handed |
+
+> **In one sentence:** simple RAG is a straight-line pipeline — chunk and embed documents once offline, then at query time embed the question, pull back the nearest chunks, and hand them to the LLM as its only source of truth for that answer.
+`
+    },
+    {
+      question: 'Code Flow — LangGraph Agent, Step by Step (runnable example)',
+      important: true,
+      answerMd: `
+# Code Flow — LangGraph Agent, Step by Step
+
+## 🧭 What This Builds
+The single agentic loop pattern from the architecture comparison, made concrete: an LLM with one tool, wired into an explicit state machine so the "think → act → observe" loop is a graph you can inspect, pause, and resume — instead of a hidden while-loop.
+
+## 🧱 Full Runnable Flow
+\`\`\`python
+from typing import TypedDict, Annotated
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode
+from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
+
+# 1. Define the state that flows between nodes
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+# 2. Define the tool(s) the agent can call
+@tool
+def get_benefit_coverage(procedure: str) -> str:
+    """Check whether a procedure is covered under the member's plan."""
+    return f"{procedure} is covered under the standard plan."
+
+tools = [get_benefit_coverage]
+llm = ChatOpenAI(model="gpt-4o-mini").bind_tools(tools)
+
+# 3. Define the nodes — plain functions that read/update state
+def call_model(state: AgentState):
+    response = llm.invoke(state["messages"])
+    return {"messages": [response]}
+
+tool_node = ToolNode(tools)
+
+# 4. Define the conditional edge — the routing decision after each model turn
+def should_continue(state: AgentState) -> str:
+    last_message = state["messages"][-1]
+    return "tools" if last_message.tool_calls else END
+
+# 5. Wire nodes + edges into a graph, then compile it into a runnable app
+graph = StateGraph(AgentState)
+graph.add_node("agent", call_model)
+graph.add_node("tools", tool_node)
+graph.set_entry_point("agent")
+graph.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
+graph.add_edge("tools", "agent")  # after a tool runs, loop back to the agent
+app = graph.compile()
+
+# 6. Run it
+result = app.invoke({"messages": [("user", "Is a mammogram covered on my plan?")]})
+print(result["messages"][-1].content)
+\`\`\`
+
+## 🗺️ Code Step → Graph Concept
+| Code step | Graph concept |
+|---|---|
+| \`AgentState\` | State — the typed object every node reads and writes |
+| \`call_model\` / \`tool_node\` | Nodes — the actual work units (LLM call, tool execution) |
+| \`should_continue\` | Conditional edge — decides where to route next based on current state |
+| \`add_edge("tools", "agent")\` | Fixed edge — the loop-back that turns this into a multi-step agent, not a single call |
+| \`graph.compile()\` | Compilation — turns the node/edge definition into a runnable state machine |
+
+> **In one sentence:** a LangGraph agent is the "think → act → observe" loop made explicit — state flows through nodes (LLM call, tool call) connected by fixed and conditional edges, and the loop-back edge is what lets the same agent call a tool, see the result, and decide what to do next.
+`
+    },
+    {
+      question: 'Code Flow — MCP Server & Client, Step by Step (runnable example)',
+      important: true,
+      answerMd: `
+# Code Flow — MCP Server & Client, Step by Step
+
+## 🧭 What This Builds
+The piece that turns a plain agent into an MCP-backed one: a standalone MCP **server** exposing a tool, and an MCP **client** that discovers and calls it — the same pattern the Benefit/API layers in the Sydney VA architecture use to expose domain tools to the agent layer.
+
+## 🧱 Server — Exposes a Tool Over MCP
+\`\`\`python
+# server.py
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("benefits-server")
+
+@mcp.tool()
+def get_benefit_coverage(member_id: str, procedure: str) -> str:
+    """Look up whether a procedure is covered for a given member."""
+    # In production this calls the real Benefit/API layer (Provider API, NLS API, etc.)
+    return f"Member {member_id}: {procedure} is covered under the standard plan."
+
+if __name__ == "__main__":
+    mcp.run(transport="stdio")
+\`\`\`
+
+## 🧱 Client — Discovers and Calls the Tool
+\`\`\`python
+# client.py
+import asyncio
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+server_params = StdioServerParameters(command="python", args=["server.py"])
+
+async def main():
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            # 1. Discover what the server exposes
+            tools = await session.list_tools()
+            print([t.name for t in tools.tools])
+
+            # 2. Call the tool
+            result = await session.call_tool(
+                "get_benefit_coverage",
+                arguments={"member_id": "M12345", "procedure": "mammogram"},
+            )
+            print(result.content[0].text)
+
+asyncio.run(main())
+\`\`\`
+
+## 🔗 Bridging MCP Tools Into a LangGraph Agent
+\`\`\`python
+from langchain_mcp_adapters.tools import load_mcp_tools
+
+async with stdio_client(server_params) as (read, write):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+        mcp_tools = await load_mcp_tools(session)          # -> LangChain-compatible tools
+        llm_with_tools = ChatOpenAI(model="gpt-4o-mini").bind_tools(mcp_tools)
+        # llm_with_tools now slots directly into the LangGraph "agent" node from the previous section
+\`\`\`
+
+## 🗺️ Code Step → MCP Concept
+| Code step | MCP concept |
+|---|---|
+| \`FastMCP("benefits-server")\` | MCP server — the process exposing tools/resources |
+| \`@mcp.tool()\` | Tool primitive — a function the model can decide to call |
+| \`stdio_client\` / \`ClientSession\` | MCP client — the 1:1 connection from host to server |
+| \`session.list_tools()\` | Discovery — the client asks the server what it can do |
+| \`session.call_tool(...)\` | Invocation — the client executes a specific tool with arguments |
+| \`load_mcp_tools(session)\` | Adapter — converts MCP tools into the same shape LangGraph's \`bind_tools\` expects |
+
+> **In one sentence:** MCP separates "what a tool does" (the server) from "who's calling it" (the client) behind a standard discover-then-call contract, and an adapter layer is all it takes to plug an MCP server's tools straight into a LangGraph agent's tool list — which is exactly how the Sydney VA architecture's Agent layer reaches its MCP and API layers.
+`
+    }
+  ]
+},
+
 {
 category: 'java',
 title: 'Multithreading',
@@ -27370,7 +27678,7 @@ Recommendations  → Neo4j           (graph traversal)
     title: 'Cheat Sheet — RAG, MCP, Tool Calling, Agentic AI, LangGraph, Prompting, Security, Cost, Testing & Evaluation',
     important: true,
     subItems: [
-      {
+        {
         question: '1. RAG — one-page recap',
         important: true,
         answerMd: `
@@ -35566,32 +35874,7 @@ A **jailbreak** is the user themselves trying to get the model to violate its ow
 
 > **In one sentence:** prompt injection — especially the indirect kind, hidden inside retrieved documents or tool results — exploits the fact that an LLM can't always distinguish content it's meant to read from instructions it's meant to obey, and defending against it means layering the same principles as tool-calling safety (least privilege, treating external content as untrusted, risk-tiered human approval, and logging) one step earlier in the pipeline, since no single filter reliably catches every attempt on its own.
 `
-    },
-    {
-      question: '15. Benefit Explainability Solution Architecture — Sydney VA end-to-end flow (IBM Watson, APIGEE/A2A, 10xE Azure environment)',
-      important: true,
-      imageUrls: ['/assets/try.png'],
-      answerMd: `
-# Benefit Explainability Solution Architecture — Sydney VA
-
-## 🧭 End-to-End Flow
-1. **Sydney VA** — the member logs into the Sydney portal and submits a question to the virtual assistant (e.g. "how do I plan for a promo/program covered under my plan?").
-2. **VA → Gen UI API** — the virtual assistant sends the member's query to the Gen UI API hosted in IBM Cloud.
-3. **Gen UI API → Meta agent** — the Gen UI API triggers the Meta agent, which uses the Pioneer agent to determine the appropriate action; for benefit-related questions it routes to the **Benefit agent**.
-4. **Benefit agent → 10xE Orchestrator (via A2A)** — the Benefit agent connects to the 10xE Orchestrator over the A2A protocol through the APIGEE gateway. The Orchestrator invokes the **MCP layer**, which calls the required **API layer** to retrieve the benefits data.
-
-## 🧱 Layers Inside the 10xE Azure Environment
-| Layer | Role |
-|---|---|
-| **Agent layer** | Orchestrator, Benefit coverage agent, MCP client — decides which tools/agents to call and assembles the response |
-| **MCP layer** | Provider network, Benefit coverage, Data ingestion (embeddings, landing zone) — exposes domain tools over MCP |
-| **API layer** | Provider API, NLS API — the actual backend data-access endpoints |
-| **Infra layer** | Azure DB, MongoDB Atlas — storage backing the agent and MCP layers |
-| **Evaluation framework & monitoring** | Observability and evaluation harness wrapping the whole pipeline |
-
-> **In one sentence:** a member's question flows from the Sydney VA through IBM Watson's Meta/Benefit agents, across an APIGEE/A2A gateway, into the 10xE Azure environment where an orchestrated Agent → MCP → API layer stack (backed by Azure DB/MongoDB and wrapped in an evaluation/observability layer) retrieves and explains the member's benefit coverage.
-`
-    },
+    }
   ]
 },
 
