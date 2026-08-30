@@ -18640,6 +18640,121 @@ spec:
 - Run serverless workloads with Knative.
 - Practice chaos testing with LitmusChaos or Chaos Mesh to validate resilience.
 `
+    },
+    {
+      question: 'Docker — Tricky Architect Interview Questions (PID 1, copy-on-write, memory limits, secret leakage, networking) + Cheatsheet',
+      important: true,
+      answerMd: `
+# 🐳 Docker — Tricky Architect-Level Interview Questions
+
+Deeper "why does this break in production" questions that go past the surface-level Docker commands — the kind that separate people who've only run \`docker run\` from people who've debugged it at 2am.
+
+## ❓ A container's process shows as PID 1 inside the container but a different PID on the host. Why does this matter?
+Docker uses PID namespaces, so the containerized process gets remapped to PID 1 inside its namespace. PID 1 has special kernel responsibilities: it must reap zombie processes and correctly forward signals (SIGTERM, SIGINT) to children. Most application binaries (node, python, java) were never written to do this. So \`docker stop\` sends SIGTERM to PID 1, the app ignores it (because it's not designed to handle PID 1 duties), and Docker waits out the grace period, then SIGKILLs it.
+> **Fix:** use an init system (\`--init\`, tini, dumb-init) or make sure your app's signal handling is PID-1 aware.
+
+## ❓ Two containers share the same image layers on disk. If one writes to a file that exists in a shared layer, does it affect the other container?
+No — this is copy-on-write (CoW). The image layers are read-only and shared across containers. Each container gets its own thin writable layer. A write triggers a "copy-up": the file is copied into the container's own writable layer before modification, so the other container still sees the original.
+> **Gotcha:** CoW has a real performance penalty for write-heavy workloads on large files — which is why databases inside containers should use volumes/bind mounts, not the writable layer.
+
+## ❓ Why can a container "see" far more memory than the host actually has, and why is that dangerous?
+Without proper cgroup-aware tooling, \`free\`/\`/proc/meminfo\` inside a container often reports the **host's** total memory, not the container's cgroup limit. This causes JVMs, Node, or other runtimes that auto-size heaps based on \`/proc/meminfo\` to allocate far more memory than the container's actual \`--memory\` limit, causing OOMKills that look "random" from the app's perspective.
+> **Fix:** explicit memory flags (\`-Xmx\`, \`--max-old-space-size\`) instead of relying on auto-detection, or a cgroup-aware runtime.
+
+## ❓ You set \`--memory=512m\` but no \`--memory-swap\`. What actually happens?
+Docker defaults \`--memory-swap\` to **2x** the \`--memory\` value when unset. So the container can actually use 512MB RAM + 512MB swap = 1GB total before OOM-killing — which surprises people who assume \`--memory\` is a hard ceiling.
+> **Fix:** set \`--memory-swap\` equal to \`--memory\` to disable swap entirely.
+
+## ❓ Why is \`docker run --rm -it\` occasionally the wrong tool for debugging a Kubernetes-bound production image?
+\`docker run\` builds a fresh container context with the host's defaults — different network mode, no ConfigMaps/Secrets injected as env vars/volumes, no service mesh sidecar, no resource limits/requests matching the pod spec, and default DNS instead of cluster DNS. A container that "works fine" locally may fail in-cluster due to networking (CNI-imposed policies), missing service discovery, or different capability sets (seccomp/AppArmor profiles differ).
+> **Better tool:** \`kubectl debug\` or an ephemeral container attached to the actual pod's namespace.
+
+## ❓ Can multi-stage builds still leak secrets even if you never \`COPY\` the secret into the final stage?
+Yes. If a \`RUN\` command in an earlier build stage uses a secret (e.g. an \`ARG\` with an API key, or a mounted file) and that stage's layer gets cached or pushed, the secret persists in that intermediate layer — even though the final image doesn't reference it. \`ARG\` values are also visible via \`docker history\`/\`docker inspect\` unless you use BuildKit's \`--secret\` mount, which never writes the secret into any layer at all.
+
+## ❓ Why might \`docker-compose\` networking behave differently once the same containers run in Kubernetes?
+Compose uses a single bridge network per project — containers reach each other by service name directly, with simple round-robin embedded DNS. Kubernetes uses per-pod IPs via CNI plugins, Services for stable virtual IPs (kube-proxy iptables/IPVS rules or eBPF), and DNS resolution through CoreDNS with different subdomain conventions (\`svc.namespace.svc.cluster.local\`). Apps that cache a single resolved IP instead of re-resolving DNS will get stale endpoints when pods roll — an assumption that never surfaced under Compose.
+
+---
+
+## 📋 Docker Cheatsheet
+
+| Concept | Key Fact |
+|---|---|
+| PID 1 | Doesn't reap zombies / forward signals by default → use \`--init\`, tini, or dumb-init |
+| Copy-on-write | Image layers are read-only + shared; writes copy-up into a private writable layer |
+| \`--memory\` default swap | \`--memory-swap\` defaults to **2x** \`--memory\` unless set explicitly |
+| \`/proc/meminfo\` in container | Often shows **host** memory, not cgroup limit → set explicit heap flags, don't auto-size |
+| Secrets in build layers | \`ARG\`/\`RUN\`-time secrets persist in intermediate layers unless using BuildKit \`--secret\` |
+| Compose vs. K8s networking | Compose = flat bridge + simple DNS; K8s = per-pod IP + Services (iptables/IPVS/eBPF) + CoreDNS |
+| Local \`docker run\` debugging | Misses ConfigMaps/Secrets, sidecars, resource limits, CNI policy, cluster DNS — use \`kubectl debug\` instead |
+
+> **In one sentence:** most "tricky" Docker interview answers come down to namespaces + cgroups doing less than people assume (PID 1 signal handling, memory visibility) and layers persisting more than people assume (CoW writable layers, cached secret layers) — know both directions of that gap.
+
+`
+    },
+    {
+      question: 'Kubernetes — Tricky Architect Interview Questions (probes, StatefulSets, RWO fencing, NetworkPolicy scope, ConfigMap reload, HPA lag) + Cheatsheet',
+      important: true,
+      answerMd: `
+# ☸️ Kubernetes — Tricky Architect-Level Interview Questions
+
+Edge cases and failure modes that separate "knows the YAML" from "has actually operated a cluster under stress."
+
+## ❓ A Deployment has \`replicas: 3\` mid-rollout. Why might you briefly see 4 or 5 pods — and is that a bug?
+Not a bug — controlled by \`maxSurge\` and \`maxUnavailable\` in the \`RollingUpdate\` strategy. Default \`maxSurge: 25%\` allows extra pods above the desired count during rollout, and \`maxUnavailable: 25%\` allows some to be down. With small replica counts, rounding can create transient overshoot.
+> **Watch out:** if resource quotas are tight, an unexpectedly large surge can trigger scheduling failures elsewhere.
+
+## ❓ Why can a Pod pass its readiness probe and still receive zero traffic?
+Multiple layers must all agree: (1) the Pod must be Ready, (2) it must be selected by a Service's label selector, (3) the Endpoints/EndpointSlice controller must have propagated that Pod's IP, and (4) kube-proxy on every node must have synced its iptables/IPVS rules. A typo in \`matchLabels\` vs. pod \`labels\`, or a slow EndpointSlice update under high churn, leaves the pod "Ready" but invisible to traffic. NetworkPolicies can also silently block traffic without affecting readiness at all.
+
+## ❓ You point \`livenessProbe\` and \`readinessProbe\` at the same HTTP endpoint. What's the subtle failure mode under load?
+If the app becomes slow (not dead) under load — e.g. a GC pause or thread-pool exhaustion — both probes fail simultaneously. The readiness failure correctly sheds load by removing the pod from the Service. But the liveness failure **restarts the container**, killing in-flight requests and warmed caches/connections right when the system was already under pressure — turning a transient slowdown into a cascading restart storm.
+> **Best practice:** liveness should only check "is the process alive/deadlocked"; readiness can be stricter and check dependencies.
+
+## ❓ Why isn't a StatefulSet's PVC deleted when you delete the StatefulSet — is that an oversight?
+It's intentional. StatefulSets decouple pod lifecycle from storage lifecycle specifically to protect stateful data (databases, queues) from accidental loss during scale-down, rolling restarts, or StatefulSet deletion. PVCs from \`volumeClaimTemplates\` persist independently and are only removed manually — or via \`persistentVolumeClaimRetentionPolicy\` in newer Kubernetes, which lets you opt into automatic deletion, but the default remains "retain."
+
+## ❓ Why doesn't scaling a StatefulSet down from 5 to 3 free up as many resources as you'd expect?
+PVCs for the terminated pods (indexes 3 and 4) stay bound, continuing to consume storage capacity/quota. Also, StatefulSet scale-down is strictly ordinal (highest index terminates first) and sequential — if pod-4 is stuck (e.g. a slow shutdown hook), scale-down blocks entirely and pods 3, 2… are never touched. Very different from a Deployment's unordered scale-down.
+
+## ❓ A node goes \`NotReady\` from a network partition. What's the dangerous edge case for stateful workloads?
+After \`node-monitor-grace-period\` (~40s) the node is marked NotReady, then after \`pod-eviction-timeout\` (~5m) the pods are marked for deletion and rescheduled elsewhere. **The danger:** the original pod's process may still be running on the partitioned node — it never actually crashed, only the control plane's view of it broke. For anything without proper consensus/fencing (a naive single-writer DB, leader-election-naive app writing to shared storage), you can end up with **two writers active simultaneously** — a split-brain — until the old pod is confirmed dead or storage-level fencing kicks in.
+
+## ❓ Is \`ReadWriteOnce\` (RWO) actually a guarantee against dual-mount corruption?
+Not fully. RWO's node-level exclusivity is enforced by the **kubelet/attach-detach controller**, not always the underlying storage device itself. In the split-brain scenario above, the attach-detach controller on the healthy side may force-attach the volume to a new node before the old node's release is truly confirmed — the classic "multi-attach error," and in some CSI driver/cloud provider race conditions historically allowed brief dual-attach windows. Real protection must come from the storage backend's own fencing (SCSI reservations, lease-based fencing, quorum-based writes) — not K8s' RWO label alone. This is exactly why distributed databases run their own Raft/Paxos rather than trusting K8s volume semantics for correctness.
+
+## ❓ Two Services target the same Pods on different ports. A NetworkPolicy allows ingress on Service A's port. Why can traffic still reach Service B's port?
+NetworkPolicies operate at the Pod IP + port level, not the Service abstraction. Once traffic reaches a Pod's IP and port (post-Service DNAT via kube-proxy), the NetworkPolicy has no concept of "which Service" it arrived through — it just matches labels and destination port. If your policy's \`ports\` list includes both ports (or omits \`ports\`, which allows all), Service B's port is also open regardless of intent.
+
+## ❓ Why doesn't a \`kubectl apply\` of a ConfigMap change update the environment variables inside a running Pod?
+Env vars sourced from a ConfigMap (\`envFrom\` or \`valueFrom.configMapKeyRef\`) are injected **once, at Pod creation time** — updating the ConfigMap doesn't restart the Pod or re-inject env vars. ConfigMaps mounted as **volumes** do get updated on the filesystem (with a propagation delay tied to the kubelet's sync period), but the application must be written to detect and reload the changed file — Kubernetes doesn't SIGHUP your process for you. This is why tools like Reloader/Stakater exist: to force rolling restarts on ConfigMap/Secret changes.
+
+## ❓ Why can \`kubectl top\` be wildly inconsistent with the Pod's actual cgroup usage, and why does that matter for HPA?
+\`kubectl top\` relies on the Metrics Server, which scrapes cAdvisor/kubelet stats on a polling interval (15–60s) and smooths spiky usage. The HPA uses these same delayed, averaged metrics plus its own sync period (default 15s) and stabilization window to avoid flapping. A short-lived CPU spike may get averaged away and never trigger scale-up — or HPA reacts to a metric that's already stale, scaling up **after** the load has passed.
+> **Mitigation:** pair HPA with predictive/scheduled scaling, or use KEDA for event-driven metrics instead of relying purely on CPU.
+
+---
+
+## 📋 Kubernetes Cheatsheet
+
+| Concept | Key Fact |
+|---|---|
+| Rolling update overshoot | \`maxSurge\` (default 25%) + \`maxUnavailable\` (default 25%) can transiently exceed/undercut replica count |
+| Ready ≠ receiving traffic | Requires: Pod Ready → Service selector match → EndpointSlice sync → kube-proxy rule sync (all 4 layers) |
+| Liveness = readiness anti-pattern | Same probe on both → slow app gets restarted mid-load-shed → restart storms |
+| StatefulSet + PVCs | PVCs from \`volumeClaimTemplates\` **survive** scale-down/deletion by default (data protection) |
+| StatefulSet scale-down order | Strictly ordinal, highest index first, sequential — one stuck pod blocks the rest |
+| Node NotReady timers | \`node-monitor-grace-period\` ~40s → NotReady; \`pod-eviction-timeout\` ~5m → pods rescheduled |
+| RWO isn't a corruption guarantee | Enforced by attach-detach controller, not always the storage device — real safety = storage-level fencing |
+| NetworkPolicy scope | Applies to Pod IP + port, **not** Service identity — Service B's port can leak through a policy meant for Service A |
+| ConfigMap env vars | Injected **once** at Pod start — updating the ConfigMap does **not** update running env vars (volume mounts *do* update, app must reload) |
+| HPA lag | Metrics Server polls every 15–60s; HPA has its own sync/stabilization window → reacts to stale, smoothed data |
+| Volume detach after node crash | Blocks on eviction-timeout confirmation before force-detach — this is what causes long \`Terminating\` hangs |
+
+> **In one sentence:** almost every Kubernetes "gotcha" traces back to the same root cause — Kubernetes' controllers are reconciling *eventually*, not instantly, so any question of the form "why didn't X happen right away" usually has an answer involving a specific timer, sync interval, or an intermediate layer (EndpointSlice, kube-proxy, attach-detach controller) that hasn't caught up yet.
+
+`
     }
   ]
 },{
