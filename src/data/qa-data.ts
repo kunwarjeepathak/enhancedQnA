@@ -92,7 +92,74 @@ const data: QACardData[] = [
 
 > **In one sentence:** a member's question flows from the Sydney VA through IBM Watson's Meta/Benefit agents, across an APIGEE/A2A gateway, into the 10xE Azure environment where an orchestrated Agent → MCP → API layer stack (backed by Azure DB/MongoDB and wrapped in an evaluation/observability layer) retrieves and explains the member's benefit coverage.
 `
-    },
+    },{
+        question: '14. How AI Models Work — one-page recap (model-agnostic fundamentals)',
+        important: true,
+        answerMd: `
+# How AI Models Work — Cheat Sheet
+
+## 🧭 The Core Idea
+\`\`\`plaintext
+output = f(input, parameters)
+\`\`\`
+- **Input** → converted to numbers (tokens, pixels, waveforms)
+- **Parameters** → millions–trillions of tunable weights
+- **Training** → adjusting weights to be useful
+Nothing is hand-coded — behavior *emerges* from the numbers.
+
+## 🧠 Building Block: The Neuron
+\`\`\`plaintext
+output = activation(W·x + b)
+\`\`\`
+Weighted sum of inputs + nonlinear activation (ReLU, GELU). Stack neurons → layers; stack layers → deep network. Nonlinearity is essential — without it, layers collapse into one linear equation. Early layers learn simple patterns; deep layers learn abstract concepts.
+
+## 🗂️ Architecture Families
+| Architecture | Best For | Core Mechanism |
+|---|---|---|
+| Transformer | Text, vision, audio (dominant) | Self-attention: every element weighs relevance to every other |
+| CNN | Images | Filters slide over input, detect local patterns (edges, textures) |
+| RNN / LSTM | Sequences (legacy) | Step-by-step processing with a memory state |
+| Diffusion | Image/audio generation | Learns to reverse noise — denoises random noise into output |
+| GAN | Generation (legacy) | Generator vs. discriminator compete |
+| Autoencoder | Compression, anomaly detection | Compress input, then reconstruct it |
+
+## 🔁 Training Loop
+\`\`\`plaintext
+1. Forward Pass (input → prediction) → 2. Loss Function (how wrong?)
+   → 3. Backpropagation (chain rule → gradients) → 4. Gradient Descent (nudge weights)
+   → Repeat millions of times
+\`\`\`
+This loop is nearly identical across all deep learning models — only architecture, data, and loss function change.
+
+## 🎯 Learning Objectives
+| Objective | Description |
+|---|---|
+| Supervised | Labeled input→output pairs |
+| Self-supervised | Labels derived from data itself (predict next word / masked patch) — how LLMs pretrain on raw text |
+| Reinforcement | Actions + reward signal (RLHF, robotics, games) |
+| Contrastive | Pull similar items together, push different ones apart (embeddings, CLIP) |
+
+## 🌐 Representation Learning
+Models convert raw input into internal **vectors** where meaning becomes geometry:
+\`\`\`plaintext
+king − man + woman ≈ queen
+\`\`\`
+Concepts/relationships emerge as directions and distances in high-dimensional space — discovered, not programmed.
+
+## ⚡ Inference (Using the Model)
+- Parameters are frozen after training
+- **Single forward pass** → classification, embeddings
+- **Autoregressive generation** → output built piece-by-piece, each new piece conditioned on prior pieces (text, image, audio)
+- Sampling controls: temperature, top-k, top-p
+
+## 📈 Scale & Emergence
+- **Scaling laws:** more parameters + data + compute → predictably better performance
+- **Emergent abilities:** new capabilities can appear suddenly past certain scale thresholds
+- Major driver of recent AI progress
+
+> **In one sentence:** every model — Transformer, CNN, diffusion, or otherwise — is just adjustable-parameter math trained via forward pass → loss → backprop → gradient descent, and modern AI progress mostly comes from scaling that same loop with more data, parameters, and compute rather than hand-coded rules.
+`
+      },
     {
       question: 'Code Flow — Simple RAG, Step by Step (runnable example)',
       important: true,
@@ -30464,6 +30531,21 @@ for (int num : arr) {
 System.out.println(duplicates); // [2, 3]
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+arr = [1, 2, 3, 2, 4, 3]
+
+seen = set()
+duplicates = []
+
+for num in arr:
+    if num in seen:
+        duplicates.append(num)
+    else:
+        seen.add(num)
+print(duplicates)  # [2, 3]
+\`\`\`
+
 > 💡 **Trick:** \`set.add(x)\` returns \`false\` when \`x\` is already present — use this directly in the \`if\` condition instead of a separate \`contains\` check. One line instead of two.
 
 ---
@@ -30479,6 +30561,17 @@ for (int i = 0; i < nums.length; i++) {
     if (nums[idx] < 0) duplicates.add(idx + 1); // seen before → duplicate
     else nums[idx] = -nums[idx];                 // mark as visited
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+# O(1) space — only works when values are in range [1, n]
+for i in range(len(nums)):
+    idx = abs(nums[i]) - 1
+    if nums[idx] < 0:
+        duplicates.append(idx + 1)  # seen before → duplicate
+    else:
+        nums[idx] = -nums[idx]
 \`\`\`
 
 **"Can you modify the array?"** → Sort it, then scan for adjacent equal elements. O(n log n) time, O(1) space.
@@ -30529,6 +30622,21 @@ for (int i = 0; i < nums.length; i++) {
 }
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+# Two Sum — the hash map complement trick
+nums = [2, 7, 11, 15]
+target = 9
+
+seen = {}  # value -> index
+for i, n in enumerate(nums):
+    complement = target - n       # "what do I need?"
+    if complement in seen:
+        result = [seen[complement], i]   # found the partner
+        break
+    seen[n] = i                   # store what we have
+\`\`\`
+
 > 💡 **Why put AFTER the check?** It prevents using the same element twice. If target=6 and you see \`nums[i]=3\`, you don't want to match it with itself.
 
 ---
@@ -30559,6 +30667,33 @@ for (int i = 0; i < nums.length - 2; i++) {
         else right--;                 // need smaller sum
     }
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+# Three Sum — Sort + fix anchor + two-pointer
+nums.sort()  # [-4, -1, -1, 0, 1, 2]
+
+result = []
+for i in range(len(nums) - 2):
+    if i > 0 and nums[i] == nums[i-1]:
+        continue  # skip duplicate anchors!
+
+    left, right = i + 1, len(nums) - 1
+    while left < right:
+        total = nums[i] + nums[left] + nums[right]
+        if total == 0:
+            result.append([nums[i], nums[left], nums[right]])
+            while left < right and nums[left] == nums[left+1]:
+                left += 1
+            while left < right and nums[right] == nums[right-1]:
+                right -= 1
+            left += 1
+            right -= 1
+        elif total < 0:
+            left += 1
+        else:
+            right -= 1
 \`\`\`
 
 ---
@@ -30617,6 +30752,18 @@ int maxSubArray(int[] nums) {
 }
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+def max_sub_array(nums):
+    current_sum = nums[0]
+    max_sum = nums[0]      # seed with first element (handles all-negative arrays)
+
+    for i in range(1, len(nums)):
+        current_sum = max(nums[i], current_sum + nums[i])  # extend or restart?
+        max_sum = max(max_sum, current_sum)
+    return max_sum
+\`\`\`
+
 > 💡 **Why seed with \`nums[0]\` instead of 0?** If all numbers are negative, the answer is the *least negative* number, not 0. Seeding with 0 would incorrectly return 0.
 
 ---
@@ -30642,6 +30789,23 @@ for (int i = 1; i < nums.length; i++) {
     }
 }
 // nums[start..end] is the actual subarray
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+start, end, temp_start = 0, 0, 0
+
+for i in range(1, len(nums)):
+    if nums[i] > current_sum + nums[i]:
+        current_sum = nums[i]
+        temp_start = i          # potential new start
+    else:
+        current_sum += nums[i]
+    if current_sum > max_sum:
+        max_sum = current_sum
+        start = temp_start      # commit the start
+        end = i
+# nums[start:end+1] is the actual subarray
 \`\`\`
 
 ---
@@ -30695,6 +30859,22 @@ void reverse(int[] nums, int lo, int hi) {
         nums[hi--] = temp;
     }
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+def rotate(nums, k):
+    n = len(nums)
+    k = k % n          # crucial: if k=7 and length=7, that's a no-op
+    reverse(nums, 0, n - 1)
+    reverse(nums, 0, k - 1)
+    reverse(nums, k, n - 1)
+
+def reverse(nums, lo, hi):
+    while lo < hi:
+        nums[lo], nums[hi] = nums[hi], nums[lo]
+        lo += 1
+        hi -= 1
 \`\`\`
 
 > 💡 **The \`k % n\` line is non-negotiable.** Rotating an array of 7 by 7 is a no-op. Rotating by 14 is the same as rotating by 0. Always normalize \`k\` first or you'll go out of bounds.
@@ -30752,6 +30932,23 @@ void moveZeroes(int[] nums) {
 }
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+def move_zeroes(nums):
+    insert_pos = 0
+
+    # Phase 1: compact all non-zeros to the front
+    for num in nums:
+        if num != 0:
+            nums[insert_pos] = num
+            insert_pos += 1
+
+    # Phase 2: backfill with zeros
+    while insert_pos < len(nums):
+        nums[insert_pos] = 0
+        insert_pos += 1
+\`\`\`
+
 ---
 
 ## 🔑 The "Minimize Writes" Follow-Up
@@ -30772,6 +30969,18 @@ void moveZeroesMinWrites(int[] nums) {
         }
     }
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+def move_zeroes_min_writes(nums):
+    slow = 0
+    for fast in range(len(nums)):
+        if nums[fast] != 0:
+            # only swap if they're different positions (avoids writing to same slot)
+            if slow != fast:
+                nums[slow], nums[fast] = nums[fast], 0
+            slow += 1
 \`\`\`
 
 > 💡 The swap variant does fewer writes when there are long stretches of non-zeros already in place.
@@ -30832,6 +31041,23 @@ int[] merge(int[] a, int[] b) {
 }
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+def merge(a, b):
+    result = []
+    i = j = 0
+
+    while i < len(a) and j < len(b):
+        if a[i] <= b[j]:
+            result.append(a[i]); i += 1
+        else:
+            result.append(b[j]); j += 1
+    # one of the arrays ran out — dump the rest of the other
+    result.extend(a[i:])
+    result.extend(b[j:])
+    return result
+\`\`\`
+
 ---
 
 ## 🔑 The LeetCode 88 Variant — Merge In-Place (Tricky!)
@@ -30849,6 +31075,25 @@ void merge(int[] nums1, int m, int[] nums2, int n) {
     // if nums2 still has elements, copy them (nums1 elements are already in place)
     while (j >= 0) nums1[k--] = nums2[j--];
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+def merge(nums1, m, nums2, n):
+    i, j, k = m - 1, n - 1, m + n - 1  # start all pointers at the end
+
+    while i >= 0 and j >= 0:
+        # place the LARGER element at the back — no overwrites possible
+        if nums1[i] > nums2[j]:
+            nums1[k] = nums1[i]; i -= 1
+        else:
+            nums1[k] = nums2[j]; j -= 1
+        k -= 1
+    # if nums2 still has elements, copy them (nums1 elements are already in place)
+    while j >= 0:
+        nums1[k] = nums2[j]
+        j -= 1
+        k -= 1
 \`\`\`
 
 > 💡 **Why fill from the back?** The empty space in \`nums1\` is at the back. Starting there means you never stomp on unread data. This is the key insight the interviewer is testing.
@@ -30911,6 +31156,20 @@ int rangeSum(int[] prefix, int L, int R) {
 }
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+def build_prefix(arr):
+    prefix = [0] * len(arr)
+    prefix[0] = arr[0]
+    for i in range(1, len(arr)):
+        prefix[i] = prefix[i-1] + arr[i]
+    return prefix
+
+def range_sum(prefix, L, R):
+    return prefix[R] if L == 0 else prefix[R] - prefix[L-1]
+    # special case when L=0 — there's no prefix[L-1] to subtract
+\`\`\`
+
 > ⚠️ **The off-by-one trap:** The formula is \`prefix[R] - prefix[L-1]\`. When L=0, you'd access \`prefix[-1]\` which doesn't exist. Always handle L=0 separately.
 
 ---
@@ -30938,6 +31197,23 @@ int subarraySum(int[] nums, int k) {
     }
     return count;
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+from collections import defaultdict
+
+def subarray_sum(nums, k):
+    freq = defaultdict(int)
+    freq[0] = 1  # ← critical: an empty prefix (sum=0) has been "seen" once
+    prefix_sum = 0
+    count = 0
+
+    for num in nums:
+        prefix_sum += num
+        count += freq[prefix_sum - k]   # how many valid starting points?
+        freq[prefix_sum] += 1           # record this prefix sum
+    return count
 \`\`\`
 
 > 💡 **Why \`freq.put(0, 1)\` at the start?** It handles subarrays that start from index 0. Without it, you'd miss any subarray beginning at the very start of the array that sums to K.
@@ -31005,6 +31281,22 @@ void reverse(int[] arr, int left, int right) {
         arr[right--] = temp;
     }
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+def rotate(nums, k):
+    n = len(nums)
+    k = k % n  # handle k > array length (rotating by n = no change)
+    reverse(nums, 0, n - 1)   # step 1: reverse everything
+    reverse(nums, 0, k - 1)   # step 2: reverse first k elements
+    reverse(nums, k, n - 1)   # step 3: reverse the rest
+
+def reverse(arr, left, right):
+    while left < right:
+        arr[left], arr[right] = arr[right], arr[left]
+        left += 1
+        right -= 1
 \`\`\`
 
 > 💡 **Always take \`k % n\` first.** If k=7 and n=5, rotating by 7 is the same as rotating by 2. Without this, step 2 reverses wrong positions.
@@ -31082,6 +31374,23 @@ void sortColors(int[] nums) {
 }
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+def sort_colors(nums):
+    low, mid, high = 0, 0, len(nums) - 1
+
+    while mid <= high:
+        if nums[mid] == 0:
+            nums[low], nums[mid] = nums[mid], nums[low]
+            low += 1
+            mid += 1                    # 0 → left zone, advance both
+        elif nums[mid] == 2:
+            nums[mid], nums[high] = nums[high], nums[mid]
+            high -= 1                   # 2 → right zone, do NOT advance mid
+        else:
+            mid += 1                    # 1 → already in the right place
+\`\`\`
+
 > ⚠️ **The critical trap — why you don't advance \`mid\` after swapping a 2:** The element that came back from \`high\` is *unknown* — you haven't inspected it yet. You must check it on the next iteration. But when you swap a 0 leftward, the element that came from \`low\` is always a 1 (it was in the confirmed-white zone), so it's already correct — safe to advance \`mid\`.
 
 ---
@@ -31139,6 +31448,18 @@ boolean isPalindrome(String s) {
 }
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+def is_palindrome(s):
+    left, right = 0, len(s) - 1
+    while left < right:
+        if s[left] != s[right]:
+            return False
+        left += 1
+        right -= 1
+    return True
+\`\`\`
+
 ---
 
 ## 🔑 The Real-World Variant — "Valid Palindrome" (LeetCode 125)
@@ -31157,6 +31478,22 @@ boolean isPalindromeII(String s) {
     }
     return true;
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+def is_palindrome_ii(s):
+    left, right = 0, len(s) - 1
+    while left < right:
+        while left < right and not s[left].isalnum():
+            left += 1
+        while left < right and not s[right].isalnum():
+            right -= 1
+        if s[left].lower() != s[right].lower():
+            return False
+        left += 1
+        right -= 1
+    return True
 \`\`\`
 
 > 💡 The inner \`while\` loops skip garbage characters. The outer \`while\` drives the comparison. Clean logic, no extra space.
@@ -31211,6 +31548,26 @@ boolean isAnagramFast(String s, String t) {
 }
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+# Approach 1 — Sort (easiest to remember under pressure)
+def is_anagram(s, t):
+    if len(s) != len(t):
+        return False
+    return sorted(s) == sorted(t)   # "listen" -> "eilnst" == "silent" -> "eilnst" ✅
+
+# Approach 2 — Frequency array (O(n), preferred)
+def is_anagram_fast(s, t):
+    if len(s) != len(t):
+        return False
+    count = [0] * 26
+    for c in s:
+        count[ord(c) - ord('a')] += 1   # add s's letters
+    for c in t:
+        count[ord(c) - ord('a')] -= 1   # subtract t's letters
+    return all(n == 0 for n in count)   # any mismatch → not anagram
+\`\`\`
+
 > 💡 **The frequency trick generalizes everywhere.** Any time you need to compare "the contents" of two strings or subarrays, this increment/decrement pattern works. It's the backbone of sliding window string problems too.
 
 ---
@@ -31227,6 +31584,17 @@ for (String word : words) {
     Arrays.sort(chars);
     map.computeIfAbsent(new String(chars), k -> new ArrayList<>()).add(word);
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+# "eat", "tea", "ate" all sort to "aet" → same key → same group
+from collections import defaultdict
+
+groups = defaultdict(list)
+for word in words:
+    key = ''.join(sorted(word))
+    groups[key].append(word)
 \`\`\`
 
 ---
@@ -31271,6 +31639,19 @@ String reverseWords(String s) {
     }
     return String.join(" ", words);
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+# Clean approach — split, reverse, join
+import re as _re
+
+def reverse_words(s):
+    words = _re.split(r'\s+', s.strip())   # \s+ handles multiple spaces
+    return ' '.join(reversed(words))
+# Even simpler, Pythonic one-liner:
+def reverse_words_short(s):
+    return ' '.join(s.split()[::-1])
 \`\`\`
 
 \`\`\`
@@ -31340,6 +31721,20 @@ int firstUniqChar(String s) {
 }
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+def first_uniq_char(s):
+    count = [0] * 26   # O(1) space — only 26 possible lowercase letters
+
+    for c in s:
+        count[ord(c) - ord('a')] += 1        # pass 1: count
+    for i, c in enumerate(s):
+        if count[ord(c) - ord('a')] == 1:    # pass 2: find first unique
+            return i
+
+    return -1  # no unique character
+\`\`\`
+
 > 💡 **Why \`int[26]\` instead of HashMap?** For lowercase-only strings, a fixed array is faster (no hashing overhead) and uses constant space. If the input could be Unicode, switch to \`HashMap<Character, Integer>\`.
 
 ---
@@ -31356,6 +31751,19 @@ for (char c : s.toCharArray())
 
 for (Map.Entry<Character, Integer> e : freq.entrySet())
     if (e.getValue() == 1) return s.indexOf(e.getKey()); // first unique
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+# Use an ordinary dict — insertion order is guaranteed since Python 3.7
+freq = {}
+for c in s:
+    freq[c] = freq.get(c, 0) + 1
+
+for c, n in freq.items():
+    if n == 1:
+        result = s.index(c)   # first unique
+        break
 \`\`\`
 
 ---
@@ -31414,6 +31822,25 @@ String compress(String s) {
 }
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+def compress(s):
+    result = []
+    i = 0
+
+    while i < len(s):
+        current = s[i]
+        count = 0
+
+        while i < len(s) and s[i] == current:
+            i += 1
+            count += 1           # consume the run
+        result.append(current + str(count))
+
+    compressed = ''.join(result)
+    return compressed if len(compressed) < len(s) else s  # only compress if it helps
+\`\`\`
+
 > 💡 **The "only return compressed if shorter" rule is easy to miss under pressure.** If the string is "abc", compression gives "a1b1c1" — longer. Always compare lengths and return the original if compression makes it worse.
 
 ---
@@ -31436,6 +31863,25 @@ int compress(char[] chars) {
     }
     return write;
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+def compress_in_place(chars):
+    write = i = 0
+    while i < len(chars):
+        curr = chars[i]
+        count = 0
+        while i < len(chars) and chars[i] == curr:
+            i += 1
+            count += 1
+        chars[write] = curr
+        write += 1
+        if count > 1:
+            for digit in str(count):
+                chars[write] = digit
+                write += 1
+    return write
 \`\`\`
 
 > 💡 Multi-digit counts (e.g., 12 consecutive a's → "a12") need to be written digit by digit. \`Integer.toString(count).toCharArray()\` handles this cleanly.
@@ -31500,6 +31946,22 @@ int lengthOfLongestSubstring(String s) {
     }
     return maxLen;
 }
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+def length_of_longest_substring(s):
+    last_seen = {}
+    left = 0
+    max_len = 0
+
+    for right, c in enumerate(s):
+        if c in last_seen:
+            # Jump left past the duplicate — but NEVER go backwards
+            left = max(left, last_seen[c] + 1)
+        last_seen[c] = right
+        max_len = max(max_len, right - left + 1)
+    return max_len
 \`\`\`
 
 > ⚠️ **The \`Math.max(left, ...)\` is the hardest part to get right.** Consider \`"abba"\`: when you hit the second \`a\` at index 3, the last-seen \`a\` is at index 0, so naively \`left = 0+1 = 1\`. But \`left\` is already at 2 (moved past the first \`b\`). Without \`Math.max\`, you'd go *backwards*, re-including a character you already excluded. Left must never retreat.
@@ -31582,6 +32044,43 @@ String minWindow(String s, String t) {
 }
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+from collections import Counter
+
+def min_window(s, t):
+    if not t or not s:
+        return ""
+
+    need = Counter(t)
+    required = len(need)   # number of DISTINCT chars to satisfy
+    have = 0
+    window = {}
+
+    left = 0
+    min_len = float('inf')
+    min_left = 0
+
+    for right, rc in enumerate(s):
+        window[rc] = window.get(rc, 0) + 1
+        # Did this char's count just reach the required frequency?
+        if rc in need and window[rc] == need[rc]:
+            have += 1
+
+        # Window is valid — shrink from left as much as possible
+        while have == required:
+            if right - left + 1 < min_len:
+                min_len = right - left + 1
+                min_left = left
+            lc = s[left]
+            window[lc] -= 1
+            if lc in need and window[lc] < need[lc]:
+                have -= 1   # we lost satisfaction of a required character
+            left += 1
+
+    return "" if min_len == float('inf') else s[min_left:min_left + min_len]
+\`\`\`
+
 > 💡 **The \`required\` vs \`have\` abstraction is everything.** Without it, you'd compare two full maps every step. Counting "how many distinct chars are *fully* satisfied" reduces validity to \`have == required\` — one integer comparison, always O(1).
 
 ---
@@ -31626,6 +32125,20 @@ for (int i = 0; i < n; i++) {
 String result = sb.toString();  // one final copy at the end
 \`\`\`
 
+**🐍 Python:**
+\`\`\`python
+# ❌ O(n²) — string concatenation creates a new immutable str every iteration
+result = ""
+for c in chars:
+    result += c   # copies 1+2+3+...+n characters total = O(n²)
+
+# ✅ O(n) — collect in a list, join once at the end
+parts = []
+for c in chars:
+    parts.append(c)   # O(1) amortized per append
+result = "".join(parts)   # one final join
+\`\`\`
+
 ---
 
 ## 🔑 Essential StringBuilder Methods for Interviews
@@ -31645,6 +32158,25 @@ String s = sb.toString();       // convert back to String
 
 // One-liner reverse:
 String reversed = new StringBuilder(s).reverse().toString();
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+s = "hello"
+
+s = s + "world"            # concatenation — creates a new str
+s = s[:3] + "XYZ" + s[3:]  # "insert" at index (strings are immutable)
+s = s[:-1]                 # remove last char
+s = s[:1] + s[3:]          # remove range [1, 3)
+s = s[::-1]                # reverse — O(n)
+c = s[0]                   # read char at index
+lst = list(s)              # convert to list to mutate characters
+lst[0] = 'x'               # MUTATE char — plain strings can't do this!
+n = len(s)
+s = "".join(lst)           # convert list back to str
+
+# One-liner reverse:
+reversed_s = s[::-1]
 \`\`\`
 
 > 💡 **\`setCharAt\`** is the killer feature strings don't have. When a problem says "modify in-place," convert to \`char[]\` or StringBuilder first.
@@ -31667,6 +32199,18 @@ for (int i = 0; i < words.length; i++) {
 
 // ✅ Or just use String.join — clearest of all
 String result = String.join(",", words);
+\`\`\`
+
+**🐍 Python:**
+\`\`\`python
+# ❌ Adds trailing comma
+parts = []
+for word in words:
+    parts.append(word + ",")
+result = "".join(parts)   # "a,b,c,"
+
+# ✅ Clean — join handles the delimiter for you, no trailing comma
+result = ",".join(words)  # "a,b,c"
 \`\`\`
 
 ---
@@ -35991,6 +36535,445 @@ A **jailbreak** is the user themselves trying to get the model to violate its ow
 `
     }
   ]
+},
+
+{
+category: 'python',
+title: 'Python Code-Backed Q&A',
+subItems: [
+{
+question: 'What is the difference between mutable and immutable types in Python?',
+answerMd: `
+### Mutable vs Immutable
+
+\`\`\`mermaid
+flowchart LR
+Immutable["Immutable: int, float, str, tuple, frozenset"] --> Behavior1["Any 'change' creates a new object"]
+Mutable["Mutable: list, dict, set, bytearray"] --> Behavior2["Changed in place, same object identity"]
+\`\`\`
+
+- Immutable objects can't be changed after creation — operations that look like mutation actually rebind the name to a new object.
+- Mutable objects can be modified in place, which matters a lot for shared references and default-argument bugs.
+
+\`\`\`python
+a = "hi"
+b = a
+a += " there"
+print(a, b)  # 'hi there' 'hi'  -> str is immutable, a now points to a new object
+
+x = [1, 2]
+y = x
+x.append(3)
+print(x, y)  # [1, 2, 3] [1, 2, 3] -> same list object, mutated in place
+\`\`\`
+
+> **Watch out:** \`def f(items=[]):\` reuses the *same* list object across every call with no argument, since default arguments are evaluated once at function definition time.
+`
+},
+{
+question: 'How do list, dict, and set comprehensions work, and when should you use a generator expression instead?',
+answerMd: `
+### Comprehensions & Generator Expressions
+
+\`\`\`mermaid
+flowchart LR
+Comp["Comprehension [ ] { } { : }"] --> Eager["Builds the full collection in memory immediately"]
+GenExpr["Generator expression ( )"] --> Lazy["Yields items one at a time, on demand"]
+\`\`\`
+
+\`\`\`python
+squares = [n * n for n in range(10) if n % 2 == 0]        # list comprehension
+lookup = {n: n * n for n in range(5)}                       # dict comprehension
+uniques = {n % 3 for n in range(10)}                         # set comprehension
+lazy_sum = sum(n * n for n in range(10**7))                  # generator expression, no list built
+\`\`\`
+
+- Use a comprehension when you need the full collection (to index into it, iterate multiple times, or pass it somewhere expecting a list/dict/set).
+- Use a generator expression when you only need to iterate once and want to avoid holding everything in memory — e.g. feeding \`sum()\`, \`any()\`, or another loop over a large or infinite sequence.
+`
+},
+{
+question: 'What do *args and **kwargs actually do, and how does argument unpacking work?',
+answerMd: `
+### *args, **kwargs, and Unpacking
+
+\`\`\`mermaid
+flowchart LR
+Call["Function call"] --> Positional["*args collects extra positional args into a tuple"]
+Call --> Keyword["**kwargs collects extra keyword args into a dict"]
+Unpack["Caller side"] --> Star["*seq unpacks a sequence into positional args"]
+Unpack --> DoubleStar["**mapping unpacks a dict into keyword args"]
+\`\`\`
+
+\`\`\`python
+def describe(name, *args, **kwargs):
+    print(name, args, kwargs)
+
+describe("cat", 1, 2, color="black", legs=4)
+# cat (1, 2) {'color': 'black', 'legs': 4}
+
+nums = [1, 2, 3]
+opts = {"sep": "-"}
+print(*nums, **opts)   # unpacks nums as positional args, opts as keyword args -> 1-2-3
+\`\`\`
+
+- \`*args\` and \`**kwargs\` are just conventional names — what matters is the \`*\` and \`**\`.
+- On the call side, the same operators unpack an existing sequence/mapping into individual arguments instead of collecting them.
+`
+},
+{
+question: 'How do decorators work under the hood?',
+answerMd: `
+### Decorators
+
+\`\`\`mermaid
+flowchart LR
+Original["original function"] --> Decorator["decorator(original)"]
+Decorator --> Wrapped["returns a wrapper function"]
+Wrapped --> Rebind["name 'original' now points to wrapper"]
+\`\`\`
+
+A decorator is just a function that takes a function and returns a (usually wrapping) function. \`@decorator\` above a \`def\` is syntactic sugar for reassigning the name after the fact.
+
+\`\`\`python
+import functools
+
+def log_calls(func):
+    @functools.wraps(func)   # preserves func.__name__, __doc__, etc.
+    def wrapper(*args, **kwargs):
+        print(f"calling {func.__name__}")
+        return func(*args, **kwargs)
+    return wrapper
+
+@log_calls
+def add(a, b):
+    return a + b
+
+# equivalent to: add = log_calls(add)
+add(2, 3)  # prints "calling add", returns 5
+\`\`\`
+
+- \`functools.wraps\` matters — without it, the wrapped function loses its original \`__name__\`/\`__doc__\`, which breaks introspection, debugging, and tools that rely on function metadata.
+- Decorators that take their own arguments (e.g. \`@retry(times=3)\`) need an extra layer: a function that returns the actual decorator.
+`
+},
+{
+question: 'What is the difference between an iterator and a generator, and what does yield actually do?',
+answerMd: `
+### Iterators vs Generators
+
+\`\`\`mermaid
+flowchart LR
+Iterable["Iterable: has __iter__"] --> Iterator["Iterator: has __iter__ and __next__"]
+Iterator --> Generator["Generator: an iterator built automatically from a function with yield"]
+\`\`\`
+
+- Any object implementing \`__iter__\` and \`__next__\` is an iterator; \`for\` loops call \`iter()\` then repeatedly call \`next()\` until \`StopIteration\`.
+- A generator function is the easy way to get an iterator: each \`yield\` pauses execution and hands back a value, resuming exactly where it left off on the next \`next()\` call.
+
+\`\`\`python
+def countdown(n):
+    while n > 0:
+        yield n
+        n -= 1
+
+gen = countdown(3)
+next(gen)  # 3
+next(gen)  # 2
+list(countdown(3))  # [3, 2, 1]
+\`\`\`
+
+- Because state (local variables, the current point of execution) is preserved between \`yield\`s, generators are the natural tool for lazily producing large or infinite sequences without holding them all in memory.
+`
+},
+{
+question: 'How do context managers and the with statement work?',
+answerMd: `
+### Context Managers
+
+\`\`\`mermaid
+flowchart LR
+With["with obj as x:"] --> Enter["obj.__enter__() runs, result bound to x"]
+Enter --> Body["block body executes"]
+Body --> Exit["obj.__exit__() runs, even if an exception occurred"]
+\`\`\`
+
+\`\`\`python
+class Timer:
+    def __enter__(self):
+        import time
+        self.start = time.time()
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        print("elapsed:", time.time() - self.start)
+        return False  # False/None means don't suppress the exception
+
+with Timer():
+    do_work()
+\`\`\`
+
+- \`__exit__\` always runs on the way out of the block, whether the body finished normally or raised — this is what makes context managers the standard way to guarantee cleanup (closing files, releasing locks, rolling back transactions).
+- \`contextlib.contextmanager\` lets you write the same thing as a generator function with a single \`yield\` splitting setup from teardown, instead of a full class with \`__enter__\`/\`__exit__\`.
+`
+},
+{
+question: 'What are the key Python dunder (magic) methods, and how does the Method Resolution Order (MRO) work with multiple inheritance?',
+answerMd: `
+### Dunder Methods & MRO
+
+| Dunder method | Purpose |
+|---|---|
+| \`__init__\` | Object initialization after \`__new__\` creates the instance |
+| \`__repr__\` / \`__str__\` | Developer-facing vs user-facing string representation |
+| \`__eq__\` / \`__hash__\` | Equality comparison; defining \`__eq__\` without \`__hash__\` makes instances unhashable |
+| \`__len__\`, \`__getitem__\`, \`__iter__\` | Makes an object work with \`len()\`, indexing, and \`for\` loops |
+| \`__enter__\` / \`__exit__\` | Context manager protocol |
+
+\`\`\`mermaid
+flowchart LR
+D["class D(B, C)"] --> MRO["MRO computed via C3 linearization"]
+MRO --> Order["D -> B -> C -> A -> object"]
+\`\`\`
+
+With multiple inheritance, Python resolves attribute/method lookups using the **C3 linearization** algorithm — a consistent left-to-right, depth-first-but-deduplicated order you can inspect with \`ClassName.__mro__\`.
+
+\`\`\`python
+class A: pass
+class B(A): pass
+class C(A): pass
+class D(B, C): pass
+
+print(D.__mro__)
+# (D, B, C, A, object) -- B is checked before C, and A only appears once
+\`\`\`
+
+- \`super()\` follows this same MRO, not just "the direct parent" — which is what makes cooperative multiple inheritance (every class in the chain calling \`super().__init__()\`) work correctly.
+`
+},
+{
+question: 'What is the GIL, and how do threading, multiprocessing, and asyncio differ in Python?',
+answerMd: `
+### GIL, Threading, Multiprocessing, and Asyncio
+
+\`\`\`mermaid
+flowchart TD
+GIL["Global Interpreter Lock: only one thread executes Python bytecode at a time"] --> Threading["threading: good for I/O-bound work, no true CPU parallelism"]
+GIL --> Multiprocessing["multiprocessing: separate processes, separate GILs, true CPU parallelism"]
+GIL --> Asyncio["asyncio: single thread, cooperative multitasking via event loop"]
+\`\`\`
+
+| Approach | Best for | Why |
+|---|---|---|
+| \`threading\` | I/O-bound tasks (network calls, file I/O) | Threads release the GIL while waiting on I/O, so they overlap even though only one runs Python code at a time |
+| \`multiprocessing\` | CPU-bound tasks (heavy computation) | Each process gets its own interpreter and GIL, so work genuinely runs in parallel across cores |
+| \`asyncio\` | High-volume I/O-bound tasks | A single thread cooperatively switches between many pending operations at \`await\` points, avoiding thread overhead entirely |
+
+\`\`\`python
+import asyncio
+
+async def fetch(n):
+    await asyncio.sleep(1)   # yields control back to the event loop
+    return n * n
+
+async def main():
+    results = await asyncio.gather(*(fetch(i) for i in range(5)))
+    print(results)
+
+asyncio.run(main())
+\`\`\`
+
+- The GIL means CPU-bound Python code doesn't benefit from more threads — that's what \`multiprocessing\` (or a C-extension that releases the GIL, like NumPy) is for.
+- \`asyncio\` doesn't sidestep the GIL at all; it avoids needing multiple OS threads in the first place by never blocking on I/O.
+`
+},
+{
+question: 'Python Cheat Sheet — quick recap of core syntax (variables, strings, lists, dicts, control flow, functions, OOP, exceptions, files, built-ins)',
+important: true,
+answerMd: `
+# Python Cheat Sheet — Quick Recap
+
+## 1. Basics & Variables
+\`\`\`python
+x = 5                # int
+y = 3.14             # float
+name = 'Alice'       # str
+is_ok = True         # bool
+n = None             # NoneType
+a, b = 1, 2          # multiple assign
+a, b = b, a          # swap
+type(x)              # <class 'int'>
+\`\`\`
+
+## 2. Operators
+\`\`\`python
++  -  *  /            # basic math
+// (floor div)  % (mod)  ** (power)
+== != > < >= <=
+and  or  not
+is  is not            # identity
+in  not in            # membership
+\`\`\`
+
+## 3. Strings
+\`\`\`python
+s = 'Hello World'
+s.lower(); s.upper(); s.strip()
+s.split(' ')          # -> list
+'-'.join(['a', 'b'])  # -> 'a-b'
+s.replace('a', 'b')
+s.startswith('He')
+f'{name} is {x}'      # f-string
+s[0:5]                # slicing
+s[::-1]               # reverse
+len(s)
+\`\`\`
+
+## 4. Lists
+\`\`\`python
+lst = [1, 2, 3]
+lst.append(4)
+lst.insert(0, 0)
+lst.pop()                    # remove last
+lst.remove(2)                # remove value
+lst.sort(); lst.reverse()
+sorted(lst, reverse=True)
+lst[1:3]                     # slicing
+len(lst); sum(lst); max(lst)
+[x * 2 for x in lst]                 # comprehension
+[x for x in lst if x > 1]            # filtered
+\`\`\`
+
+## 5. Tuples & Sets
+\`\`\`python
+t = (1, 2, 3)      # immutable
+t[0]; len(t)
+s = {1, 2, 3}       # set
+s.add(4); s.discard(2)
+s1 | s2              # union
+s1 & s2              # intersection
+s1 - s2              # difference
+\`\`\`
+
+## 6. Dictionaries
+\`\`\`python
+d = {'a': 1, 'b': 2}
+d['a']                       # access
+d.get('c', 0)                # safe access
+d['c'] = 3                   # add/update
+d.pop('a')
+d.keys(); d.values(); d.items()
+for k, v in d.items(): ...
+{k: v * 2 for k, v in d.items()}     # comprehension
+\`\`\`
+
+## 7. Control Flow
+\`\`\`python
+if x > 0:
+    print('pos')
+elif x == 0:
+    print('zero')
+else:
+    print('neg')
+
+for i in range(5):
+    print(i)
+
+while x > 0:
+    x -= 1
+
+for i in lst:
+    if i == 3: break
+    if i == 1: continue
+\`\`\`
+
+## 8. Functions
+\`\`\`python
+def greet(name, msg='Hi'):
+    return f'{msg}, {name}'
+
+greet('Bob')
+greet('Bob', msg='Yo')
+
+f = lambda x: x * 2
+f(5)   # 10
+
+def f(*args, **kwargs):
+    print(args, kwargs)
+\`\`\`
+
+## 9. Classes & OOP
+\`\`\`python
+class Animal:
+    def __init__(self, name):
+        self.name = name
+
+    def speak(self):
+        return f'{self.name} makes a sound'
+
+class Dog(Animal):        # inheritance
+    def speak(self):
+        return f'{self.name} barks'
+
+d = Dog('Rex')
+d.speak()
+\`\`\`
+
+## 10. Exceptions
+\`\`\`python
+try:
+    risky()
+except ValueError as e:
+    print('Value error:', e)
+except (TypeError, KeyError):
+    print('other error')
+else:
+    print('no error')
+finally:
+    print('always runs')
+
+raise ValueError('bad input')
+\`\`\`
+
+## 11. Files
+\`\`\`python
+with open('file.txt', 'r') as f:
+    data = f.read()
+    # f.readline() / f.readlines()
+
+with open('out.txt', 'w') as f:
+    f.write('hello')
+
+with open('log.txt', 'a') as f:
+    f.write('more')
+\`\`\`
+
+## 12. Common Built-ins
+\`\`\`python
+len(), type(), print(), input()
+range(start, stop, step)
+enumerate(lst)      # (index, val)
+zip(lst1, lst2)     # pair up
+map(func, lst)
+filter(func, lst)
+isinstance(x, int)
+list(); dict(); set(); tuple()
+\`\`\`
+
+## 13. Modules & Misc
+\`\`\`python
+import math
+from datetime import datetime
+import numpy as np
+
+if __name__ == '__main__':
+    main()
+
+# List/dict comprehension with condition
+[x for x in range(10) if x % 2 == 0]
+\`\`\`
+`
+}
+]
 },
 
 ];
