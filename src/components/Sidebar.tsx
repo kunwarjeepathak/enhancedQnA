@@ -39,6 +39,7 @@ const categoryIcons: Record<Category, JSX.Element> = {
   dsa: <ListAlt fontSize="small" />,
   java: <Coffee fontSize="small" />,
   systemDesign: <Build fontSize="small" />,
+  distributedArchitecture: <Build fontSize="small" />,
   springBoot: <Nature fontSize="small" />,
   microservices: <Nature fontSize="small" />,
   aiEngineering: <Nature fontSize="small" />,
@@ -58,7 +59,7 @@ const categoryIcons: Record<Category, JSX.Element> = {
   leadership: <Groups fontSize="small" />,
   communication: <Chat fontSize="small" />,
   JPMCQuestions: <AccountBalance fontSize="small" />,
-  Healthcare: <LocalHospital fontSize="small" />,
+  healthcare: <LocalHospital fontSize="small" />,
   hobbies: <Palette fontSize="small" />
 };
 

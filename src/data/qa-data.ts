@@ -19849,6 +19849,297 @@ client.get('session123', (err, val) => { /* ... */ });
 ]
 },
 {
+category: 'distributedArchitecture',
+title: 'Distributed Architecture',
+important: true,
+subItems: [
+{
+question: 'Monolith or microservices?',
+important: true,
+answerMd: `
+# Monolith or Microservices?
+
+It depends on team size, domain clarity, and operational maturity.
+
+- For a new product with an uncertain domain, start with a **modular monolith** with enforced module boundaries. This avoids the distributed-systems tax while the domain is still changing.
+- Extract services when there is a concrete driver: independent scaling, team autonomy (roughly 30+ engineers), or different reliability or compliance needs.
+- Splitting too early is expensive and hard to reverse. Extracting later is cheap if the boundaries were respected.
+`
+},
+{
+question: 'Explain CAP and how you use it in practice.',
+important: true,
+answerMd: `
+# CAP Theorem in Practice
+
+During a network partition, a system must choose between **consistency** (reject or delay requests) and **availability** (serve possibly stale data).
+
+- Partitions are a fact of life, so the real choice is **CP vs AP** under failure.
+- **PACELC** adds the more common case: even without a partition, you trade **latency** against **consistency**.
+- Decide **per use case, not per system**: payments and inventory decrements lean CP; feeds, catalogs, and view counts lean AP with eventual consistency.
+`
+},
+{
+question: 'How do you choose between SQL and NoSQL?',
+answerMd: `
+# SQL vs NoSQL
+
+Start from **access patterns**, not fashion.
+
+- **Relational** fits when data is relational, needs multi-row transactions, and queries are varied or ad hoc.
+- **NoSQL** fits when you need horizontal scale on known access patterns (key-value, document, wide-column), flexible schemas, or very high write throughput.
+- Default to a relational database like Postgres, because it goes further than people expect.
+- Move to NoSQL when a specific scale or latency requirement demands it. Polyglot persistence is fine if each store has a clear job.
+`
+},
+{
+question: 'How do you shard data and pick a shard key?',
+answerMd: `
+# Sharding and Shard Keys
+
+A good shard key has **high cardinality**, **spreads load evenly**, and keeps **most queries within a single shard**.
+
+- Examples: \`tenant_id\` for multi-tenant SaaS, \`user_id\` for user-centric data.
+- Avoid keys that create hot spots, like timestamps or celebrity accounts.
+- **Hash-based** sharding with consistent hashing spreads load and makes rebalancing cheaper. **Range-based** sharding supports range scans but risks hot partitions.
+- Cross-shard queries and transactions are the cost, so design them out where possible and plan for resharding from day one.
+`
+},
+{
+question: 'Strong vs eventual consistency: how do you decide?',
+answerMd: `
+# Strong vs Eventual Consistency
+
+Ask: what is the business impact of a user seeing stale data?
+
+- Double-spending money or overselling stock: want **strong consistency**, at least on that critical path.
+- A like count off by a few for a second: **eventual consistency** is fine and buys availability and lower latency.
+- Often the answer is mixed: strong consistency for the write path and invariants, eventual for read models and derived views.
+- **Read-your-writes** is a cheap middle ground that fixes most user-visible weirdness.
+`
+},
+{
+question: 'How do you handle transactions across services?',
+important: true,
+answerMd: `
+# Transactions Across Services
+
+Avoid distributed transactions where possible. **2PC** couples availability and adds locking and coordinator risk.
+
+1. First check whether the boundary is wrong and the data should live in one service.
+2. Otherwise use the **Saga pattern**: a sequence of local transactions with **compensating actions** on failure.
+   - **Orchestration** when the flow is complex and needs central visibility.
+   - **Choreography** when it is simple and loosely coupled.
+3. Make each step **idempotent**.
+4. Use the **Outbox pattern** so the state change and the event publish happen atomically.
+`
+},
+{
+question: 'How do you achieve idempotency, and is exactly-once real?',
+important: true,
+answerMd: `
+# Idempotency and Exactly-Once
+
+End-to-end exactly-once delivery is not achievable over an unreliable network. What we build is **at-least-once delivery plus idempotent processing**, which gives exactly-once *effects*.
+
+- Clients send an **idempotency key**; the server stores the key with the result and returns the stored result on a retry.
+- Consumers **deduplicate** using a message ID, or make operations naturally idempotent (upserts, set-state rather than increment).
+- Kafka transactions give exactly-once *within Kafka*, but side effects outside it still need idempotency.
+`
+},
+{
+question: 'Kafka vs RabbitMQ or SQS?',
+answerMd: `
+# Kafka vs RabbitMQ / SQS
+
+They solve different problems.
+
+- **Kafka** is a distributed log: durable, replayable, ordered per partition, built for high-throughput streaming and multiple independent consumers.
+- **RabbitMQ / SQS** are queues built for task distribution, with per-message acknowledgment, flexible routing, and simpler operations.
+- Choose Kafka for event streaming, event sourcing, analytics pipelines, and replay needs.
+- Choose a queue for work distribution and job processing where simplicity matters.
+- Kafka has a real operational cost, so don't pick it just because it is popular.
+`
+},
+{
+question: 'Synchronous or asynchronous communication?',
+answerMd: `
+# Sync vs Async Communication
+
+**Synchronous (REST, gRPC)** is right when the caller needs an immediate answer and the workflow is simple, but it creates temporal coupling: if the downstream is down, so am I.
+
+**Asynchronous messaging** decouples availability, absorbs spikes, and suits workflows that don't need an immediate result, at the cost of complexity around ordering, duplicates, and debugging.
+
+> **Rule of thumb:** queries and user-facing reads are usually sync; commands with side effects across services and cross-domain notifications are usually async.
+`
+},
+{
+question: 'Describe your caching strategy.',
+answerMd: `
+# Caching Strategy
+
+Cache in layers:
+
+- **CDN** for static and cacheable content
+- **Distributed cache (Redis)** for hot data
+- **Local in-process cache** for tiny, very hot values
+
+Details:
+- **Cache-aside** is the default pattern.
+- **Invalidation:** TTLs as a safety net plus event-driven invalidation for correctness-sensitive data.
+- **Stampede protection:** request coalescing, jittered TTLs, stale-while-revalidate.
+- Decide up front what staleness the business can tolerate.
+- Caching hides problems, so measure hit rates and make sure the system survives a cold cache.
+`
+},
+{
+question: 'How do you design for resilience?',
+important: true,
+answerMd: `
+# Designing for Resilience
+
+Assume every dependency will fail.
+
+- Every remote call gets a **timeout**.
+- **Retries** only for idempotent operations, with exponential backoff and jitter.
+- **Circuit breaker** to stop hammering a failing service.
+- **Bulkheads** to isolate resources so one slow dependency can't exhaust everything.
+- **Graceful degradation**, e.g. show cached recommendations when the recommendation service is down.
+- Verify with load tests and **chaos experiments**. Untested resilience is an assumption.
+`
+},
+{
+question: 'How do you prevent cascading failures and retry storms?',
+answerMd: `
+# Cascading Failures and Retry Storms
+
+Retries multiply load exactly when a service is weakest.
+
+- Set **retry budgets** and retry at only one layer of the stack; add jitter.
+- Use **circuit breakers**.
+- Apply **load shedding and rate limiting** so an overloaded service rejects excess work quickly instead of collapsing.
+- **Backpressure** propagates overload upstream using bounded queues and concurrency limits.
+- Keep **timeouts decreasing** down the call chain so callers don't wait longer than their own callers do.
+`
+},
+{
+question: 'How do you design for high availability and disaster recovery?',
+answerMd: `
+# High Availability and Disaster Recovery
+
+Start with the business: **RTO and RPO** per system, and what downtime costs.
+
+- **Within a region:** multi-AZ, no single points of failure, automated failover.
+- **Multi-region:** choose between
+  - **Active-passive:** simpler, cheaper, slower recovery.
+  - **Active-active:** near-zero downtime, but hard data consistency and conflict problems and much higher cost.
+- Most systems don't need active-active.
+- Test with regular **failover drills**. An untested DR plan usually fails.
+`
+},
+{
+question: 'How do you approach observability?',
+answerMd: `
+# Observability
+
+**Logs, metrics, and traces**, all correlated through a trace ID propagated across every service, ideally via OpenTelemetry.
+
+- Define **SLIs and SLOs** with the business (e.g. 99.9% of checkout requests under 500ms).
+- Alert on **SLO burn rate and user impact**, not every CPU spike.
+- Structured logging and **RED metrics** per service (rate, errors, duration).
+- Dashboards per user journey, so "why is checkout slow?" is answered in minutes, not hours.
+`
+},
+{
+question: 'How do you secure a distributed system?',
+answerMd: `
+# Securing a Distributed System
+
+Defense in depth with a **zero-trust** mindset: don't trust the network.
+
+- **User auth:** OAuth2/OIDC at the edge, short-lived JWTs propagated with the request.
+- **Authorization** enforced in each service, not only at the gateway.
+- **Service-to-service:** mTLS, often via a service mesh.
+- **Secrets** in a vault with rotation, never in code or images.
+- Least-privilege IAM, encryption in transit and at rest, audit logging, dependency scanning in CI.
+- Threat-model early. Retrofitting security is far costlier.
+`
+},
+{
+question: 'How do you deploy safely?',
+answerMd: `
+# Safe Deployments
+
+**Decouple deployment from release.**
+
+- CI/CD with automated tests.
+- **Canary or blue-green** rollouts.
+- **Feature flags** to control exposure.
+- Automated health checks and **SLO-based rollback triggers** to limit blast radius.
+- **Expand-and-contract** (backward-compatible) schema migrations so old and new code can run side by side.
+
+> Goal: every deploy is small, reversible, and boring.
+`
+},
+{
+question: 'How would you migrate a legacy system?',
+answerMd: `
+# Legacy Migration
+
+Avoid big-bang rewrites, which usually run late, over budget, and fail to reach parity.
+
+- Use the **strangler fig pattern**: put a facade in front of the legacy system and move capabilities one at a time.
+- Start with a low-risk, high-value slice to prove the approach.
+- For data: **parallel runs, change data capture, and reconciliation** before cutover.
+- Define success metrics and a **rollback plan** for every slice.
+- Keep delivering business value throughout so the migration keeps its funding.
+`
+},
+{
+question: 'Build vs buy?',
+answerMd: `
+# Build vs Buy
+
+**Build** where it is a differentiator for the business. **Buy or use managed services** where it is commodity (auth, payments, email, observability, databases).
+
+Evaluate:
+- Total cost of ownership, including operations and hiring
+- Integration effort
+- Lock-in risk and exit cost
+- Vendor viability
+- How much customization is needed
+
+Lock-in isn't automatically bad. Paying for it is often cheaper than building, as long as it is a conscious, documented choice with an isolation layer around critical vendors.
+`
+},
+{
+question: 'How do you make and govern architecture decisions?',
+answerMd: `
+# Architecture Decisions and Governance
+
+- Record significant decisions in **ADRs**: context, options considered, decision, consequences. This creates shared history and prevents re-litigating settled choices.
+- Prefer **lightweight governance**: guardrails, reference architectures, and paved roads that make the right thing the easy thing, rather than a review board that becomes a bottleneck.
+- Teams own decisions within their boundaries; the architect gets involved in cross-cutting or hard-to-reverse ones.
+- Distinguish **two-way doors** (decide fast) from **one-way doors** (decide carefully).
+`
+},
+{
+question: 'How do you handle technical debt and conflicting priorities?',
+answerMd: `
+# Technical Debt and Conflicting Priorities
+
+Treat debt as a **portfolio**, not a moral failing.
+
+- Make it visible and **quantify its cost** (slower delivery, incidents, risk).
+- Prioritize by **business impact and interest rate**, not by how ugly the code is.
+- Negotiate a steady allocation (say 15-20% of capacity) and tie debt work to upcoming features.
+- Speak in business terms: "this reduces lead time by X", not "this is cleaner".
+- Some debt is a deliberate, correct trade-off to hit a deadline, as long as it is recorded and has a repayment plan.
+`
+}
+]
+},
+{
 category: 'leadership',
 title: 'Handling Tough Situations STAR Q&A',
 subItems: [
@@ -38146,6 +38437,906 @@ if __name__ == '__main__':
 `
 }
 ]
+},
+
+{
+  category: 'aiEngineering',
+  title: 'Architecture in AI',
+  important: true,
+  subItems: [
+    {
+      question: '1. Design an event-driven data pipeline for document ingestion and downstream AI processing using AWS services.',
+      important: true,
+      answerMd: `
+I design ingestion and AI processing as separate, independently scalable stages, so a spike in uploads never blocks retries or user-facing traffic.
+
+**Flow:** an ingestion trigger lands raw files in S3 and emits an event (S3 → EventBridge/SNS). SQS queues buffer that event for downstream workers — OCR/extraction, metadata tagging, and indexing — so each stage scales on its own and a slow stage just grows its queue instead of dropping work.
+
+**Compute:** Lambda handles stateless steps (preprocessing, metadata extraction, routing); for heavier or longer-running transforms I move to Fargate/Step Functions so I'm not fighting Lambda's time and memory limits. Every handler is written idempotently (dedupe keys, conditional writes) so replays and retries are safe.
+
+**Observability:** structured logs with a correlation ID per document let me trace a single file's lifecycle from upload to extracted entities across every service.
+
+**Persistence:** raw files stay in S3 for reproducibility; structured/extracted output goes into the store that matches its access pattern (DynamoDB for lookups, a relational/vector store for search).
+
+**Reliability:** I monitor queue depth, processing lag, and error rate against SLA, with DLQs and bounded retries so a bad document degrades gracefully instead of stalling the pipeline.
+`
+    },
+    {
+      question: '2. How do you build CI/CD, monitoring, and model/version control for an LLM and vector-search system?',
+      answerMd: `
+I treat production AI like any other production software — reproducible builds, versioned configuration, environment parity — plus a layer of AI-specific artifacts that plain CI/CD doesn't cover.
+
+**What gets versioned:** prompts/templates, embedding model + parameters, retrieval config (top-k, hybrid weights, reranker), and the indexing strategy (chunking rules, normalization). Chunking and embedding changes affect retrieval quality as much as a code change does, so they go through the same review and rollback path as code.
+
+**CI/CD:** containerized services with orchestration (ECS/EKS), staged deploys, and compatibility checks so a prompt or schema change doesn't silently break a tool-calling contract downstream.
+
+**Monitoring:** infra signals (latency, error rate) plus AI-specific signals — token usage, retrieval hit rate, reranker impact, per-stage latency (OCR → embedding → retrieval → generation) — tied together with tracing so I can point at the exact stage that regressed.
+
+**Rollback:** alert thresholds on p95 latency and retrieval quality; crossing them triggers automatic rollback to the last stable prompt/model/index version rather than a manual scramble.
+`
+    },
+    {
+      question: '3. How have you implemented LLM tool-calling with MCP endpoints, including authorization, validation, and audit logging?',
+      answerMd: `
+I treat tool-calling as a secure integration surface, not just a prompting feature — it's the point where a model's output turns into a real side effect.
+
+- **Authorization:** every tool call is checked against the calling user's role and data-access policy at the API layer, not just at the UI layer.
+- **Validation:** tool arguments are schema-checked and sanitized before execution; malformed or out-of-policy calls are rejected before they reach the underlying system.
+- **Audit logging:** tool name, argument metadata (not raw sensitive payloads), timestamp, and correlation ID are logged for every call, so any action is traceable back to a request and a user.
+- **Structured outputs:** I constrain tool responses to a defined schema so the agent parses them reliably instead of re-interpreting free text, which cuts hallucinated tool results.
+- **Reliability:** background workflows for slow downstream tasks, caching for repeated/idempotent calls, and execution tracing on latency and error rate per tool — which is what actually tells me where to set timeouts and retry budgets.
+`
+    },
+    {
+      question: '4. What responsible-AI, security, and governance guardrails do you apply in healthcare/regulated enterprise GenAI?',
+      answerMd: `
+I treat responsible AI as concrete technical controls, not a policy document.
+
+- **Security:** authorization on every tool endpoint, audit logs on every sensitive data access.
+- **Data governance:** input validation and schema constraints so an agent can't query or transform data outside its allowed scope.
+- **Grounding:** responses are constrained to retrieved evidence, with confidence checks before the model is allowed to assert something unsupported.
+- **Human-in-the-loop:** low-confidence outputs — especially anything touching medical or benefits adjudication — route to a person instead of auto-resolving.
+- **Prompt-injection resistance:** deterministic formatting rules and structured outputs reduce how much an injected instruction inside retrieved content can actually change agent behavior.
+- **Drift monitoring:** retrieval and model-behavior drift are tracked continuously so degraded or off-target answers get caught before they reach users.
+- **Traceability:** execution tracing gives compliance teams a reconstructable path from question to answer, which matters as much as the answer being correct.
+`
+    },
+    {
+      question: '5. When do you use Bedrock Agents vs. custom orchestration?',
+      answerMd: `
+I split by where I need control versus where a managed layer is good enough.
+
+**Bedrock Agents** — for operational, well-scoped workflows (infrastructure monitoring, routine automation) where I want reliable managed execution and don't need to hand-tune every step.
+
+**Custom orchestration (e.g., LangGraph)** — for multi-agent RAG where evidence validation, retrieval quality, and auditability are the product. I keep retrieval and grounding logic in my own pipeline because that's where quality actually gets won or lost, and because regulated environments need enforceable input schemas and auditable flows that a fully managed agent layer doesn't expose.
+
+In practice I combine both: Bedrock Agents for the operational shell, custom orchestration for the RAG/evidence core. Cost and latency (caching, top-k tuning, batching) and load-tested failure modes both factor into which pieces stay managed and which I own directly — I don't want a single managed layer to be my only line of defense.
+`
+    },
+    {
+      question: '6. Describe migrating a legacy system to an API-led, cloud-native architecture for AI enablement.',
+      answerMd: `
+I migrate incrementally, starting from integration boundaries rather than a rewrite.
+
+1. **Define contracts first** — stable service contracts for data access and business logic that AI components can call safely, before touching the legacy internals.
+2. **Decompose incrementally** — legacy APIs become microservices with event-driven patterns where async processing improves scalability (this also lets me migrate one domain at a time without a big-bang cutover).
+3. **Security hardening** — OAuth2/JWT, least-privilege data access, especially in healthcare/finance contexts where this is non-negotiable.
+4. **Deployment modernization** — containerization + orchestration so rollout and scaling are repeatable, not manual.
+5. **AI enablement** — build ingestion/indexing services that turn enterprise data into retrieval-ready formats as part of the migration, not as an afterthought.
+6. **Observability** — structured logging, metrics, and tracing on every new service so AI components are debuggable end-to-end.
+
+I sequence migration by measured latency, throughput, and reliability impact — the riskiest or highest-value boundary moves first, not the easiest one.
+`
+    },
+    {
+      question: '7. How do you evaluate retrieval quality and prevent model drift in an agentic, multi-agent RAG workflow?',
+      answerMd: `
+Agentic routing can hide retrieval problems behind a confident-sounding final answer, so I check retrieval quality directly, not just the end output.
+
+**Offline:** a held-out query set scored against real user intent, not just embedding similarity — compared across model updates and re-ingestion cycles, including before/after reranker comparisons.
+
+**Online/drift signals:** distribution of retrieved passages, embedding variance, and ranking-order changes over time. Crossing a threshold triggers re-indexing or a retrieval parameter change (top-k, reranker, hybrid weighting) rather than waiting for user complaints.
+
+**In-workflow:** validator agents check evidence adequacy *before* generation runs, so a weak retrieval never silently becomes a confident answer.
+
+**Guardrails:** checkpointing plus human-in-the-loop interrupts for uncertain cases; execution tracing and latency analytics tie quality drops back to a specific stage — extraction, chunking, retrieval, reranking, or generation — so I fix the actual cause instead of guessing.
+`
+    },
+    {
+      question: '8. Describe a multi-agent architecture you built: orchestrator, worker, validator, failure handling.',
+      answerMd: `
+**Orchestrator** — owns the overall workflow: retrieval plan, which tool endpoints to call, routing decisions.
+
+**Workers** — focused, single-responsibility subtasks: retrieval execution, OCR/document extraction, evidence preparation for generation.
+
+**Validators** — check that retrieved evidence actually supports the query and enforce grounding before the answer is finalized.
+
+**Failure handling:**
+- Checkpointing so long-running tasks resume without losing context.
+- Human-in-the-loop interrupts for low-confidence or ambiguous states, instead of forcing an answer.
+- Retry/fallback around every external tool and API dependency, with structured logging for fast debugging.
+- Consistent authorization, input validation, and audit logging across every agent — a validator agent still has to obey the same governance rules as a worker.
+
+**Result:** far fewer low-quality retrieval outputs reach the final response, which measurably cut manual adjudication effort.
+`
+    },
+    {
+      question: '9. How do you balance architecture ownership and hands-on delivery leading a small engineering team?',
+      answerMd: `
+I set the technical standards early (API contracts, observability, secure tool-calling patterns) and then stay hands-on enough that those standards are grounded in what actually ships, not what looks good on a whiteboard.
+
+- Sprint planning + review checklists covering performance, security, logging/traceability, and regression coverage.
+- Code reviews and mentoring through structured goals and regular 1:1s — mentoring is also how ramp-up time and implementation consistency improve across the team.
+- Complex requirements broken into incremental milestones so we de-risk architecture decisions while still shipping value.
+- Modularity as a delivery lever under deadline pressure — separating retrieval, generation, and tool orchestration lets the team parallelize instead of serializing on one critical path.
+- Scope adjusted against measured outcomes, not gut feel, when timelines tighten.
+`
+    },
+    {
+      question: '10. Why are you a strong fit for an AI Lead Engineer/Architect role focused on AWS and production GenAI?',
+      answerMd: `
+I've owned both enterprise modernization and production GenAI architecture end-to-end in regulated environments — which is the combination this role actually needs.
+
+- Built production RAG/agentic systems: OCR/document intelligence, hybrid retrieval (BM25 + RRF), reranking, evidence-grounded generation.
+- Implemented multi-agent workflows (LangGraph orchestrator/worker/validator) with checkpointing and human-in-the-loop controls.
+- Hands-on with AWS serverless/data services — Lambda, S3, DynamoDB, queue-based async processing — with real, measured cloud cost savings.
+- Delivered secure MCP-style tool-calling with authorization, input validation, and audit logging for enterprise readiness.
+- Built the evaluation/monitoring layer, not just the model layer — held-out query tests, drift detection, execution tracing for tuning.
+- Led teams through code review, sprint planning, and mentoring while staying implementation-level.
+- Healthcare and BFSI domain experience — both are governance-heavy, which maps directly to insurance and other regulated verticals.
+
+So I can set the architecture direction *and* deliver it, with measurable latency, cost, and stability improvements to show for it.
+`
+    },
+    {
+      question: '11. Share a production performance optimization: latency, cost, throughput — what did you change?',
+      answerMd: `
+I look for the bottleneck stage first and fix the architecture there, rather than tuning parameters broadly.
+
+- **Latency:** redesigned microservices as event-driven components, cutting transaction latency by **35%**.
+- **Cost:** optimized AWS footprint across serverless storage/compute, removing unnecessary infrastructure for **$120K/year** in savings.
+- **Retrieval:** improved chunking, indexing, and hybrid retrieval + reranking, cutting document lookup time by **45%**.
+- **Caching:** added Redis for conversational context, removing redundant external calls.
+- **Throughput:** decoupled ingestion from processing with queues, so heavy async work doesn't block interactive APIs, and scaled each independently.
+- **Method:** tracing and monitoring to find the actual slow stage, then targeted tuning (top-k, reranker settings, timeouts) instead of blanket changes.
+`
+    },
+    {
+      question: '12. Explain your end-to-end production RAG architecture: OCR, chunking, embeddings, retrieval, generation, evaluation, monitoring.',
+      answerMd: `
+**Ingestion → normalization:** OCR-based extraction first, then semantic chunking (not fixed-size) so retrieved chunks stay contextually coherent.
+
+**Indexing:** hybrid retrieval — BM25 + RRF combined with reranking — to balance lexical recall against semantic precision on noisy enterprise documents. Vector storage via pgvector alongside an OpenSearch-style BM25 index for the hybrid layer.
+
+**Generation:** grounded prompting constrained to retrieved evidence, with safe fallback behavior when evidence is insufficient rather than letting the model fill the gap.
+
+**Evaluation:** held-out query set plus retrieval-drift monitoring, so degradation in embeddings, source documents, or model behavior gets caught early.
+
+**Monitoring:** latency, retrieval hit rate, and end-to-end token usage instrumented per stage; caching, chunk size, and reranking thresholds get adjusted based on that data, not intuition.
+
+---
+
+## Additional likely questions
+`
+    },
+    {
+      question: '13. How do you choose between a large frontier model, a smaller fine-tuned model, and a fine-tuned open-weights model for a given production use case?',
+      answerMd: `
+I decide on task complexity, latency/cost budget, and data sensitivity, in that order.
+
+- **Frontier model (e.g., Claude, GPT-class):** open-ended reasoning, ambiguous inputs, low query volume — where accuracy matters more than per-call cost.
+- **Smaller/distilled model:** high-volume, narrow tasks (classification, extraction, routing) where latency and cost dominate and the task doesn't need broad reasoning.
+- **Fine-tuned open-weights model:** when data can't leave a controlled environment (PHI/PII, contractual restrictions), or when I need a very specific output format/behavior that's cheaper to bake in via fine-tuning than to enforce every call via prompting.
+
+I usually run a small eval set across candidates on the actual task before committing, because benchmark rankings rarely predict performance on a specific enterprise document set.
+`
+    },
+    {
+      question: '14. How do you defend against prompt injection in a RAG or agentic system, especially when retrieved content is attacker-controlled (e.g., a scanned document or web page)?',
+      answerMd: `
+I assume any retrieved content can contain an injected instruction and design around that assumption rather than trying to detect every variant.
+
+- Retrieved content is passed to the model as *data*, clearly delimited from system/developer instructions, never concatenated as if it were an instruction.
+- Tool-calling stays gated by the authorization/validation layer described earlier — even if a model is "convinced" to call a tool, the tool layer independently checks the caller's actual permissions.
+- Structured output schemas limit what the model can do with a response; free-text instructions embedded in a document can't easily steer a schema-constrained tool call.
+- I log and alert on anomalous tool-call patterns (unexpected tool, unexpected argument shape) as a second line of defense, since it's cheaper to detect a novel injection after the fact than to block every possible phrasing in advance.
+`
+    },
+    {
+      question: '15. How do you handle PII/PHI when building a RAG pipeline over enterprise or healthcare documents?',
+      answerMd: `
+- Classify and tag sensitive fields at ingestion, before anything is chunked or embedded, so downstream stages inherit the classification.
+- Apply field-level access control at retrieval time — a query can match a chunk but still be denied if the requester's role doesn't clear that chunk's sensitivity.
+- Keep audit logging on every retrieval and generation that touches a sensitive document, tied to the same correlation ID used for tracing.
+- Where possible, avoid sending raw PHI to a third-party model API at all — mask/tokenize identifiers before the call and rehydrate them afterward, or use a model deployment that's under the org's own compliance boundary (VPC endpoint, BAA-covered provider).
+`
+    },
+    {
+      question: '16. How do you scale a multi-agent system from a prototype to production traffic without cost or latency blowing up?',
+      answerMd: `
+- Cache aggressively at the layer that repeats the most — embeddings for unchanged documents, retrieval results for common queries, tool results for idempotent calls.
+- Move from "call every agent on every request" to conditional routing — a lightweight classifier or the orchestrator itself decides whether a validator or a second worker pass is even needed.
+- Batch where the workload allows it (embedding generation, reranking) instead of one-at-a-time calls.
+- Set hard latency/cost budgets per stage and treat exceeding them as a bug, not a tuning note — this is what keeps a system that worked fine in a demo from becoming unpredictably expensive at scale.
+- Load test with realistic concurrent multi-agent traffic before rollout, not just single-request latency, since agent-to-agent fan-out is usually where production surprises come from.
+
+---
+
+## MCP, Agentic AI & LangGraph — deep-dive questions
+`
+    },
+    {
+      question: '17. How is MCP different from a plain function-calling / tool-use API, and why would you introduce it into an architecture?',
+      answerMd: `
+Plain function calling is per-model, per-vendor: I define a tool schema in the API call itself, and it only exists for that one model integration. MCP standardizes the *server* side — a tool, resource, or prompt is exposed once as an MCP server and any MCP-compatible client (a different model, a different app, a different team's agent) can use it without me re-implementing the integration for each one.
+
+I introduce MCP when I have tools/data sources that multiple agents or teams need to share (internal APIs, a document store, a ticketing system) — it turns "N integrations × M consumers" into "N servers, any client." For a single agent calling a handful of tools once, plain function calling is simpler and I don't add MCP just for its own sake.
+`
+    },
+    {
+      question: '18. Walk through how you\'d design and harden an MCP server for an internal enterprise API.',
+      answerMd: `
+- **Scope tools narrowly.** Each tool does one well-defined thing with a strict input/output schema — not a generic "run this query" tool, which is where most of the risk lives.
+- **Auth at the server, not the client.** The MCP server independently validates the caller's identity/role against the underlying API's permission model; it never trusts that "the agent decided to call this" implies authorization.
+- **Input validation and sanitization** on every parameter before it touches the underlying system, with rejected calls returned as structured errors the agent can reason about (not silent failures).
+- **Rate limiting / quotas per caller**, since an agent loop can call a tool far more aggressively than a human ever would.
+- **Audit logging** — tool name, argument metadata, caller identity, timestamp, correlation ID — same pattern as any other tool-calling layer, MCP doesn't change the governance requirement.
+- **Versioning the tool schema** explicitly, so a breaking change to a tool's contract doesn't silently break every agent that depends on it — I treat it like an API contract with deprecation windows.
+`
+    },
+    {
+      question: '19. How do you prevent an agentic loop from running away — infinite loops, runaway tool calls, or runaway cost?',
+      answerMd: `
+- **Hard step/iteration caps** on the orchestrator — an agent gets N reasoning/tool-call cycles before it's forced to stop and either answer with what it has or escalate to a human.
+- **Budget guards** — token and dollar-cost ceilings per request/session, enforced outside the model's own judgment, not just requested of it via prompt.
+- **Cycle detection** — if the same tool is called with materially the same arguments repeatedly (a classic loop symptom), the orchestrator interrupts rather than trusting the agent to notice.
+- **Timeouts per stage**, not just per request, so one stuck tool call can't hold the whole session open.
+- **Human-in-the-loop escalation** as the default failure mode when a cap is hit — the system fails safe (stops and asks) rather than failing open (keeps trying indefinitely).
+`
+    },
+    {
+      question: '20. In LangGraph specifically, how do you use checkpointing and state, and why does it matter for production agents?',
+      answerMd: `
+LangGraph's graph model lets me express the workflow as nodes and edges with explicit state passed between them, including cycles (an agent can loop back to re-retrieve or re-validate), which a simple DAG can't represent cleanly.
+
+**Checkpointing** persists that state at each node transition, which gives me two things in production: a long-running or human-in-the-loop task can pause (waiting on approval, waiting on a slow tool) and resume later from exactly where it left off, without replaying the whole conversation; and if a node fails, I can resume from the last good checkpoint instead of restarting the entire agent run — which matters a lot once a run involves several expensive LLM calls.
+
+I also use the state object as the single source of truth for what each node is allowed to see, which keeps nodes decoupled — a worker doesn't need to know how the orchestrator got here, it just reads what it needs from state.
+`
+    },
+    {
+      question: '21. How do you decide between a single ReAct-style agent, a supervisor/orchestrator pattern, and a fully decentralized "swarm" of agents?',
+      answerMd: `
+- **Single ReAct agent** — when the task is one coherent reasoning loop over a small, well-known tool set. Simpler to build, debug, and monitor; I default here unless there's a real reason not to.
+- **Supervisor/orchestrator (what I use most in production)** — when subtasks are distinct enough to warrant separate agents (retrieval vs. validation vs. generation) but still need centralized control over sequencing, budget, and failure handling. This is where audit and governance requirements are easiest to enforce, since there's one place that decides what happens next.
+- **Decentralized/swarm** — only when subtasks are genuinely independent and don't need a global view to coordinate (e.g., parallel research agents that each investigate a different sub-question and report back). I use this rarely in regulated environments because it's harder to bound and audit than a supervised pattern.
+
+The deciding factor for me is usually governance, not capability — a supervisor pattern is easier to make auditable, rate-limited, and interruptible, which matters more than raw flexibility in enterprise settings.
+`
+    },
+    {
+      question: '22. How do you design short-term vs. long-term memory for an agent, and what goes in each?',
+      answerMd: `
+- **Short-term (session/working memory):** the current conversation and task state — what LangGraph's checkpointed state or a simple message buffer holds. This is scoped to one session and discarded (or archived) when it ends.
+- **Long-term memory:** facts that should persist across sessions — user preferences, prior decisions, entity resolution from earlier interactions. I store this separately (a database or a dedicated memory store), retrieved into context only when relevant, not replayed in full every turn.
+
+The main design risk is treating long-term memory like RAG without RAG's guardrails — it still needs relevance filtering, staleness handling (facts change), and access control, or it becomes a second, less-governed retrieval system.
+`
+    },
+    {
+      question: '23. How do you evaluate an agent\'s end-to-end quality, not just a single model response?',
+      answerMd: `
+Single-turn eval (is this one answer good) doesn't catch agentic failure modes like wrong tool selection, premature stopping, or looping — so I evaluate at the trajectory level too.
+
+- **Task success rate** on a held-out set of realistic multi-step tasks, not single questions — did the agent actually complete the task, not just produce plausible-looking output.
+- **Trajectory review** — did it pick the right tools in a reasonable order, or get there by accident? This catches brittle agents that happen to succeed on the eval set but would fail on a slightly different input.
+- **LLM-as-judge** for subjective quality (helpfulness, groundedness) at scale, cross-checked periodically against human review so the judge itself doesn't drift.
+- **Cost and step count** as first-class metrics alongside accuracy — an agent that succeeds but takes 40 tool calls isn't production-ready even if it's "correct."
+- **Regression suite** run on every prompt, tool-schema, or model change, same as the retrieval eval set described earlier — agent behavior is exactly as prone to silent regression as retrieval quality is.
+`
+    },
+    {
+      question: '24. How do you handle a tool call that fails or returns unexpected data mid-agent-run?',
+      answerMd: `
+I want the agent to reason about failure the same structured way it reasons about success, not fall over.
+
+- Tool errors are returned as structured, typed responses (error code + message), not raw exceptions, so the agent can distinguish "retry-able" from "this input is invalid" from "you're not authorized."
+- The orchestrator applies bounded retries with backoff for transient failures, and routes straight to human-in-the-loop for anything that looks like a permissions or data-integrity problem rather than letting the agent guess.
+- If a tool returns data in an unexpected shape (schema mismatch), I fail the call rather than let the agent attempt to parse it loosely — a silently-misparsed tool result is worse than a visible failure.
+- All of this is logged with the same correlation ID as the rest of the run, so a failure is traceable to the exact step, not just "the agent gave a bad answer."
+`
+    },
+    {
+      question: '25. Full reference implementation',
+      important: true,
+      answerMd: `
+A single, runnable, heavily-commented Python file that ties everything above together end to end: event-driven ingestion, MCP-style tool auth/validation/audit, hybrid retrieval, and a LangGraph-style orchestrator/worker/validator with checkpointing and human-in-the-loop escalation.
+
+AWS services and real LLM/vector-DB calls are swapped for small in-memory mocks (clearly marked \`# --- MOCK ---\`) so it runs anywhere with no credentials — every mock notes what it would be replaced with in production. Runs as-is with \`python reference_pipeline.py\`.
+
+\`\`\`python
+"""
+================================================================================
+END-TO-END REFERENCE IMPLEMENTATION
+Event-Driven Ingestion -> MCP-style Tool Calling -> Hybrid RAG ->
+Multi-Agent (Orchestrator/Worker/Validator) with LangGraph-style checkpointing
+================================================================================
+
+WHAT THIS FILE IS
+------------------
+A single, runnable, heavily-commented reference that demonstrates the
+patterns discussed in the interview Q&A doc, end to end:
+
+  1. Event-driven document ingestion (S3 upload -> event -> SQS -> worker)
+  2. Idempotency + correlation-ID based structured logging / tracing
+  3. MCP-style tool server: auth, input validation, audit logging
+  4. Hybrid retrieval (BM25 + vector) with a reranking step
+  5. Multi-agent workflow: Orchestrator -> Worker -> Validator
+     - LangGraph-style state graph with checkpointing
+     - Human-in-the-loop interrupt on low confidence
+     - Bounded iterations / runaway-loop protection
+  6. Basic monitoring: per-stage latency, token/cost accounting, drift stub
+
+HOW TO READ IT
+---------------
+Real AWS services (S3, SQS, Lambda) and a real vector DB / LLM API are
+replaced with small in-memory mocks so this runs anywhere with no
+credentials or network access. Every mock is clearly marked
+"# --- MOCK: replace with real X in production ---" so you can see
+exactly what would change for a real deployment.
+
+Run it directly:
+    python reference_pipeline.py
+================================================================================
+"""
+
+from __future__ import annotations
+
+import json
+import time
+import uuid
+import logging
+import functools
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Callable, Optional
+
+# ------------------------------------------------------------------------
+# 0. OBSERVABILITY: structured logging + a simple tracing/latency decorator
+#    Every log line carries a correlation_id so a single document's or
+#    a single agent run's path can be reconstructed end to end.
+# ------------------------------------------------------------------------
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+log = logging.getLogger("pipeline")
+
+
+def traced(stage_name: str) -> Callable:
+    """
+    Decorator that measures latency for a pipeline stage and logs
+    start/end with the correlation_id pulled from the first argument
+    (every stage function takes a \`ctx\` object carrying it).
+
+    In production this is where you'd emit to your tracing backend
+    (OpenTelemetry / X-Ray / Datadog APM) instead of just logging.
+    """
+
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Find the first arg carrying a correlation_id (works whether
+            # func is a plain function or a bound instance method, where
+            # args[0] would otherwise be \`self\` instead of the context).
+            correlation_id = "unknown"
+            for arg in args:
+                if hasattr(arg, "correlation_id"):
+                    correlation_id = arg.correlation_id
+                    break
+            start = time.perf_counter()
+            log.info(f"[{correlation_id}] START  {stage_name}")
+            try:
+                result = func(*args, **kwargs)
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                log.info(f"[{correlation_id}] DONE   {stage_name} ({elapsed_ms:.1f}ms)")
+                # In production: push elapsed_ms to a metrics backend, tagged
+                # by stage_name, and alert if p95 crosses an SLA threshold.
+                return result
+            except Exception as exc:
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                log.error(f"[{correlation_id}] FAILED {stage_name} ({elapsed_ms:.1f}ms): {exc}")
+                raise
+
+        return wrapper
+
+    return decorator
+
+
+# ------------------------------------------------------------------------
+# 1. EVENT-DRIVEN INGESTION
+#    S3 upload -> event -> SQS queue -> idempotent worker
+#    (see Q1 in the interview doc)
+# ------------------------------------------------------------------------
+
+@dataclass
+class Document:
+    doc_id: str
+    correlation_id: str
+    raw_text: str
+    metadata: dict = field(default_factory=dict)
+
+
+class InMemoryQueue:
+    """--- MOCK: replace with boto3 SQS client in production ---"""
+
+    def __init__(self) -> None:
+        self._messages: list[dict] = []
+
+    def send(self, message: dict) -> None:
+        self._messages.append(message)
+
+    def receive_all(self) -> list[dict]:
+        msgs, self._messages = self._messages, []
+        return msgs
+
+
+class ObjectStore:
+    """--- MOCK: replace with boto3 S3 client in production ---"""
+
+    def __init__(self) -> None:
+        self._objects: dict[str, str] = {}
+
+    def put(self, key: str, content: str) -> None:
+        self._objects[key] = content
+
+    def get(self, key: str) -> str:
+        return self._objects[key]
+
+
+class IngestionPipeline:
+    """
+    Landing + eventing stage. Uploading a document:
+      1. writes the raw file to object storage (reproducibility)
+      2. emits an event onto a queue for downstream async processing
+
+    Idempotency: we key on doc_id, so re-processing the same event
+    (e.g. after a retry) is safe and doesn't create duplicate work.
+    """
+
+    def __init__(self, store: ObjectStore, queue: InMemoryQueue) -> None:
+        self.store = store
+        self.queue = queue
+        self._processed_doc_ids: set[str] = set()  # idempotency guard
+
+    def upload(self, raw_text: str, metadata: Optional[dict] = None) -> str:
+        doc_id = str(uuid.uuid4())
+        correlation_id = str(uuid.uuid4())
+        self.store.put(f"raw/{doc_id}.txt", raw_text)
+        event = {
+            "doc_id": doc_id,
+            "correlation_id": correlation_id,
+            "metadata": metadata or {},
+        }
+        self.queue.send(event)
+        log.info(f"[{correlation_id}] Uploaded doc {doc_id}, event queued")
+        return doc_id
+
+    def is_duplicate(self, doc_id: str) -> bool:
+        """Dedup check a worker calls before processing (idempotency)."""
+        if doc_id in self._processed_doc_ids:
+            return True
+        self._processed_doc_ids.add(doc_id)
+        return False
+
+
+# ------------------------------------------------------------------------
+# 2. MCP-STYLE TOOL SERVER
+#    Auth + input validation + audit logging around every tool call
+#    (see Q3 / Q17 / Q18 in the interview doc)
+# ------------------------------------------------------------------------
+
+class ToolAuthError(Exception):
+    pass
+
+
+class ToolValidationError(Exception):
+    pass
+
+
+@dataclass
+class ToolCallContext:
+    """Carries who is calling, and the correlation_id for audit/tracing."""
+
+    correlation_id: str
+    caller_role: str
+
+
+@dataclass
+class ToolSpec:
+    name: str
+    handler: Callable[..., Any]
+    input_schema: dict[str, type]          # simple {"param": type} schema
+    allowed_roles: set[str]                # authorization policy
+
+
+class AuditLog:
+    """--- MOCK: replace with a durable, queryable audit store in prod ---"""
+
+    def __init__(self) -> None:
+        self.entries: list[dict] = []
+
+    def record(self, **fields) -> None:
+        entry = {"timestamp": time.time(), **fields}
+        self.entries.append(entry)
+        log.info(f"[AUDIT] {json.dumps(entry, default=str)}")
+
+
+class MCPToolServer:
+    """
+    A minimal MCP-style tool server: tools are registered once with a
+    schema and an authorization policy, and every call goes through the
+    same auth -> validate -> execute -> audit pipeline regardless of
+    which agent or model is calling it.
+    """
+
+    def __init__(self, audit_log: AuditLog) -> None:
+        self._tools: dict[str, ToolSpec] = {}
+        self.audit_log = audit_log
+
+    def register(self, spec: ToolSpec) -> None:
+        self._tools[spec.name] = spec
+
+    def call(self, tool_name: str, args: dict, ctx: ToolCallContext) -> Any:
+        spec = self._tools.get(tool_name)
+        if spec is None:
+            raise ToolValidationError(f"Unknown tool: {tool_name}")
+
+        # --- AUTHORIZATION: enforced server-side, never trusted from the
+        #     agent's own claim of "I'm allowed to do this" ---
+        if ctx.caller_role not in spec.allowed_roles:
+            self.audit_log.record(
+                correlation_id=ctx.correlation_id, tool=tool_name,
+                caller_role=ctx.caller_role, status="DENIED_UNAUTHORIZED",
+            )
+            raise ToolAuthError(f"Role '{ctx.caller_role}' not permitted to call '{tool_name}'")
+
+        # --- INPUT VALIDATION: schema-check every argument before execution ---
+        for param, expected_type in spec.input_schema.items():
+            if param not in args:
+                raise ToolValidationError(f"Missing required param '{param}' for tool '{tool_name}'")
+            if not isinstance(args[param], expected_type):
+                raise ToolValidationError(
+                    f"Param '{param}' expected {expected_type.__name__}, "
+                    f"got {type(args[param]).__name__}"
+                )
+
+        # --- EXECUTE ---
+        result = spec.handler(**args)
+
+        # --- AUDIT: tool name, arg metadata (not raw sensitive payloads),
+        #     correlation_id, timestamp -- enough to reconstruct "what
+        #     happened" without logging sensitive content itself ---
+        self.audit_log.record(
+            correlation_id=ctx.correlation_id, tool=tool_name,
+            caller_role=ctx.caller_role, arg_keys=list(args.keys()),
+            status="OK",
+        )
+        return result
+
+
+# ------------------------------------------------------------------------
+# 3. HYBRID RETRIEVAL: BM25-style lexical score + vector similarity + rerank
+#    (see Q12 in the interview doc)
+# ------------------------------------------------------------------------
+
+@dataclass
+class Chunk:
+    chunk_id: str
+    text: str
+    embedding: list[float]  # toy embedding for demo purposes
+
+
+def _toy_embed(text: str) -> list[float]:
+    """
+    --- MOCK: replace with a real embedding model call in production ---
+    A deterministic, dependency-free "embedding" so this file has no
+    external ML dependencies: a small bag-of-words vector over a fixed
+    vocabulary. Good enough to demonstrate cosine similarity mechanics.
+    """
+    vocab = ["retrieval", "agent", "latency", "security", "pipeline", "model"]
+    text_lower = text.lower()
+    return [float(text_lower.count(word)) for word in vocab]
+
+
+def _cosine_sim(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(y * y for y in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _bm25_like_score(query: str, text: str) -> float:
+    """
+    --- MOCK: replace with a real BM25 index (OpenSearch/Elasticsearch)
+    in production --- Simple term-overlap score to stand in for lexical
+    retrieval alongside the vector score, mirroring a hybrid BM25 + RRF
+    setup without pulling in a real search engine dependency.
+    """
+    query_terms = set(query.lower().split())
+    text_terms = set(text.lower().split())
+    if not query_terms:
+        return 0.0
+    return len(query_terms & text_terms) / len(query_terms)
+
+
+class HybridRetriever:
+    def __init__(self) -> None:
+        self.chunks: list[Chunk] = []
+
+    def index(self, chunk_id: str, text: str) -> None:
+        # Semantic chunking would happen upstream; here each call is one chunk.
+        self.chunks.append(Chunk(chunk_id, text, _toy_embed(text)))
+
+    @traced("hybrid_retrieval")
+    def retrieve(self, ctx: "AgentContext", query: str, top_k: int = 3) -> list[tuple[Chunk, float]]:
+        query_vec = _toy_embed(query)
+        scored = []
+        for chunk in self.chunks:
+            vector_score = _cosine_sim(query_vec, chunk.embedding)
+            lexical_score = _bm25_like_score(query, chunk.text)
+            # Reciprocal-rank-fusion-style blend of the two signals.
+            hybrid_score = 0.5 * vector_score + 0.5 * lexical_score
+            scored.append((chunk, hybrid_score))
+        scored.sort(key=lambda pair: pair[1], reverse=True)
+        return scored[:top_k]
+
+
+# ------------------------------------------------------------------------
+# 4. MULTI-AGENT WORKFLOW: Orchestrator -> Worker -> Validator
+#    LangGraph-style state graph with checkpointing, bounded iterations,
+#    and a human-in-the-loop interrupt on low-confidence evidence.
+#    (see Q7, Q8, Q20, Q21 in the interview doc)
+# ------------------------------------------------------------------------
+
+class AgentStage(str, Enum):
+    RETRIEVE = "retrieve"
+    VALIDATE = "validate"
+    GENERATE = "generate"
+    NEEDS_HUMAN = "needs_human"
+    DONE = "done"
+
+
+@dataclass
+class AgentContext:
+    """
+    The 'state' object passed between graph nodes -- analogous to
+    LangGraph's shared state. Every node reads what it needs and
+    writes its result back here; nothing is passed by side channel.
+    """
+
+    correlation_id: str
+    query: str
+    evidence: list[tuple[Chunk, float]] = field(default_factory=list)
+    validated: bool = False
+    answer: Optional[str] = None
+    stage: AgentStage = AgentStage.RETRIEVE
+    iterations: int = 0
+    max_iterations: int = 4  # runaway-loop guard (see Q19)
+
+
+class Checkpointer:
+    """
+    --- MOCK: replace with LangGraph's built-in checkpointing (or a
+    durable store like Postgres/DynamoDB) in production ---
+    Persists AgentContext at each stage transition so a long-running or
+    interrupted run can resume from the last good state instead of
+    restarting the whole agent from scratch.
+    """
+
+    def __init__(self) -> None:
+        self._checkpoints: dict[str, list[AgentContext]] = {}
+
+    def save(self, ctx: AgentContext) -> None:
+        self._checkpoints.setdefault(ctx.correlation_id, []).append(
+            AgentContext(**{**ctx.__dict__})
+        )
+
+    def history(self, correlation_id: str) -> list[AgentContext]:
+        return self._checkpoints.get(correlation_id, [])
+
+
+class HumanInTheLoop(Exception):
+    """Raised to interrupt the graph and hand control to a person."""
+
+    def __init__(self, ctx: AgentContext, reason: str) -> None:
+        self.ctx = ctx
+        self.reason = reason
+        super().__init__(reason)
+
+
+class MultiAgentWorkflow:
+    """
+    Orchestrator/worker/validator pattern:
+
+      Orchestrator (run()):  decides the plan and drives the state graph
+      Worker       (_retrieve_node): does the focused retrieval subtask
+      Validator    (_validate_node): checks evidence is adequate before
+                                      generation is allowed to proceed
+      Generator    (_generate_node): produces the grounded final answer
+
+    Every transition is checkpointed. A low-confidence validation raises
+    HumanInTheLoop instead of guessing. Iterations are capped so a
+    disagreement loop between validator and worker can't run forever.
+    """
+
+    def __init__(
+        self,
+        retriever: HybridRetriever,
+        tool_server: MCPToolServer,
+        checkpointer: Checkpointer,
+        confidence_threshold: float = 0.15,
+    ) -> None:
+        self.retriever = retriever
+        self.tool_server = tool_server
+        self.checkpointer = checkpointer
+        self.confidence_threshold = confidence_threshold
+
+    @traced("worker:retrieve")
+    def _retrieve_node(self, ctx: AgentContext) -> AgentContext:
+        ctx.evidence = self.retriever.retrieve(ctx, ctx.query, top_k=3)
+        ctx.stage = AgentStage.VALIDATE
+        return ctx
+
+    @traced("validator:validate")
+    def _validate_node(self, ctx: AgentContext) -> AgentContext:
+        # Evidence is "adequate" if the top result clears a confidence bar.
+        top_score = ctx.evidence[0][1] if ctx.evidence else 0.0
+        if top_score < self.confidence_threshold:
+            ctx.validated = False
+            ctx.stage = AgentStage.NEEDS_HUMAN
+        else:
+            ctx.validated = True
+            ctx.stage = AgentStage.GENERATE
+        return ctx
+
+    @traced("generator:generate")
+    def _generate_node(self, ctx: AgentContext) -> AgentContext:
+        # In production this is the grounded LLM call, constrained to
+        # only the retrieved evidence text (never unconstrained free text).
+        best_chunk, score = ctx.evidence[0]
+        ctx.answer = (
+            f"[grounded answer, evidence_score={score:.2f}] "
+            f"Based on: \\"{best_chunk.text}\\""
+        )
+        ctx.stage = AgentStage.DONE
+        return ctx
+
+    def run(self, correlation_id: str, query: str) -> AgentContext:
+        ctx = AgentContext(correlation_id=correlation_id, query=query)
+        log.info(f"[{correlation_id}] Orchestrator starting run for query: {query!r}")
+
+        while ctx.stage != AgentStage.DONE:
+            ctx.iterations += 1
+
+            # --- RUNAWAY-LOOP GUARD (see Q19): bounded iterations, fail
+            #     safe to a human instead of spinning forever ---
+            if ctx.iterations > ctx.max_iterations:
+                raise HumanInTheLoop(ctx, reason="max_iterations_exceeded")
+
+            if ctx.stage == AgentStage.RETRIEVE:
+                ctx = self._retrieve_node(ctx)
+            elif ctx.stage == AgentStage.VALIDATE:
+                ctx = self._validate_node(ctx)
+            elif ctx.stage == AgentStage.GENERATE:
+                ctx = self._generate_node(ctx)
+            elif ctx.stage == AgentStage.NEEDS_HUMAN:
+                self.checkpointer.save(ctx)
+                raise HumanInTheLoop(ctx, reason="low_confidence_evidence")
+
+            # --- CHECKPOINT after every node transition (see Q20) so this
+            #     run can be resumed from here if interrupted ---
+            self.checkpointer.save(ctx)
+
+        log.info(f"[{correlation_id}] Orchestrator finished: {ctx.answer}")
+        return ctx
+
+
+# ------------------------------------------------------------------------
+# 5. WIRING IT TOGETHER: ingestion -> indexing -> tool registration ->
+#    multi-agent run, with monitoring throughout.
+# ------------------------------------------------------------------------
+
+def build_demo_tool_server(audit_log: AuditLog) -> MCPToolServer:
+    """Registers one example enterprise tool behind the MCP-style server."""
+
+    server = MCPToolServer(audit_log)
+
+    def lookup_policy_status(policy_id: str) -> dict:
+        # --- MOCK: replace with a real internal API call in production ---
+        return {"policy_id": policy_id, "status": "ACTIVE"}
+
+    server.register(
+        ToolSpec(
+            name="lookup_policy_status",
+            handler=lookup_policy_status,
+            input_schema={"policy_id": str},
+            allowed_roles={"claims_agent", "admin"},
+        )
+    )
+    return server
+
+
+def main() -> None:
+    # --- Stage 1: event-driven ingestion ---
+    store, queue = ObjectStore(), InMemoryQueue()
+    ingestion = IngestionPipeline(store, queue)
+
+    doc_id = ingestion.upload(
+        "Retrieval latency improved after adding a reranking model to the pipeline.",
+        metadata={"source": "runbook.txt"},
+    )
+    ingestion.upload(
+        "Agent security relies on authorization checks at every tool call.",
+        metadata={"source": "security_guide.txt"},
+    )
+
+    # --- Worker consumes queued events, indexes each doc (idempotent) ---
+    retriever = HybridRetriever()
+    for event in queue.receive_all():
+        if ingestion.is_duplicate(event["doc_id"]):
+            continue  # idempotency: skip already-processed events
+        text = store.get(f"raw/{event['doc_id']}.txt")
+        retriever.index(event["doc_id"], text)
+
+    # --- Stage 2: MCP-style tool server with auth/validation/audit ---
+    audit_log = AuditLog()
+    tool_server = build_demo_tool_server(audit_log)
+
+    tool_ctx = ToolCallContext(correlation_id=str(uuid.uuid4()), caller_role="claims_agent")
+    result = tool_server.call("lookup_policy_status", {"policy_id": "POL-123"}, tool_ctx)
+    log.info(f"Tool result: {result}")
+
+    # Unauthorized call -> should raise ToolAuthError and be audit-logged as denied
+    try:
+        bad_ctx = ToolCallContext(correlation_id=str(uuid.uuid4()), caller_role="guest")
+        tool_server.call("lookup_policy_status", {"policy_id": "POL-123"}, bad_ctx)
+    except ToolAuthError as exc:
+        log.info(f"Expected authorization failure: {exc}")
+
+    # --- Stage 3: multi-agent workflow (orchestrator/worker/validator) ---
+    checkpointer = Checkpointer()
+    workflow = MultiAgentWorkflow(retriever, tool_server, checkpointer)
+
+    correlation_id = str(uuid.uuid4())
+    final_ctx = workflow.run(correlation_id, "How was retrieval latency improved?")
+    print("\\nFINAL ANSWER:", final_ctx.answer)
+
+    # --- Stage 4: a query with weak evidence triggers human-in-the-loop ---
+    try:
+        workflow.run(str(uuid.uuid4()), "What is the weather in Paris tomorrow?")
+    except HumanInTheLoop as hitl:
+        print(f"\\nHUMAN-IN-THE-LOOP triggered: reason={hitl.reason}, "
+              f"stage={hitl.ctx.stage}, iterations={hitl.ctx.iterations}")
+
+    # --- Checkpoint history for the successful run, showing resumability ---
+    print(f"\\nCheckpoint history length for successful run: "
+          f"{len(checkpointer.history(correlation_id))} states saved")
+
+    # --- Audit trail ---
+    print(f"\\nAudit log entries recorded: {len(audit_log.entries)}")
+
+
+if __name__ == "__main__":
+    main()
+
+\`\`\`
+`
+    }
+  ]
 },
 
 ];

@@ -5,7 +5,7 @@ import QAList   from './components/QAList';
 import { AskAI } from './AskAI';
 import './ask-ai.css';
 
-export type Category = 'all' | 'dsa'| 'java' | 'systemDesign' | 'springBoot' | 'microservices' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'dataArchitect' | 'aiEngineering' |'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'Healthcare';
+export type Category = 'all' | 'dsa'| 'java' | 'python' | 'systemDesign' | 'distributedArchitecture' | 'springBoot' | 'microservices' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'dataArchitect' | 'aiEngineering' |'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'healthcare';
 
 const categories = [
   { key: 'all' as Category,        label: 'All' },
@@ -20,6 +20,7 @@ const categories = [
   { key: 'aws' as Category,      label: 'AWS' },
   { key: 'azure' as Category,      label: 'Azure' },
   { key: 'dataArchitect' as Category,      label: 'Data Architect' },
+  { key: 'python' as Category,      label: 'Python' },
   { key: 'aiEngineering' as Category,      label: 'AI Engineering' },
   { key: 'javascript' as Category,      label: 'Javascript and TypeScript' },
   { key: 'react' as Category,      label: 'React' },
@@ -32,7 +33,8 @@ const categories = [
   { key: 'JPMQuestions' as Category,    label: 'JPMC questions' },
   { key: 'hobbies' as Category,    label: 'Hobbies' },
   { key: 'engineeringManager' as Category,    label: 'Engineering Manager' },
-  { key: 'healthcare' as Category,    label: 'Healthcare' }
+  { key: 'healthcare' as Category,    label: 'Healthcare' },
+  { key: 'distributedArchitecture' as Category,    label: 'Distributed Architecture' }
 ];
 
 function App() {
