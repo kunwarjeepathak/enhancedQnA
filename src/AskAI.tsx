@@ -39,6 +39,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   hobbies: 'Hobbies',
   engineeringManager: 'Engineering Manager',
   Healthcare: 'Healthcare',
+  distributedArchitecture: 'Distributed Architecture'
 };
 
 const SUGGESTED_PROMPTS = [
