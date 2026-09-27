@@ -36046,6 +36046,19 @@ print(knapsack([1, 3, 4, 5], [1, 4, 5, 7], 7))  # 9
   ]
 },
 
+{
+  category: 'dsa',
+  title: 'DSA Problem Patterns Cheatsheet (PDF)',
+  subItems: [
+    {
+      question: 'Open the DSA Problem Patterns Cheatsheet PDF',
+      answerMd: `
+[View or download DSA Problem Patterns Cheatsheet](${process.env.PUBLIC_URL}/assets/DSA_Problem_Patterns_Cheatsheet.pdf)
+`
+    }
+  ]
+},
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AWS — INTUITION & MENTAL MODELS (Mentor-Style)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38000,6 +38013,18 @@ A **jailbreak** is the user themselves trying to get the model to violate its ow
   ]
 },
 
+{
+category: 'python',
+title: 'Python Interview Questions & Answers (PDF)',
+subItems: [
+{
+question: 'Open the attached interview-prep PDF',
+answerMd: `
+[View or download Python Interview Questions & Answers](${process.env.PUBLIC_URL}/assets/python_interview_qa.pdf)
+`
+}
+]
+},
 {
 category: 'python',
 title: 'Python Code-Backed Q&A',
