@@ -5,7 +5,7 @@ import QAList   from './components/QAList';
 import { AskAI } from './AskAI';
 import './ask-ai.css';
 
-export type Category = 'all' | 'dsa'| 'java' | 'python' | 'systemDesign' | 'distributedArchitecture' | 'springBoot' | 'microservices' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'dataArchitect' | 'aiEngineering' |'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'healthcare';
+export type Category = 'all' | 'dsa'| 'java' | 'python' | 'systemDesign' | 'distributedArchitecture' | 'springBoot' | 'microservices' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'dataArchitect' | 'aiEngineering' | 'agenticAiMcp' |'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'healthcare';
 
 const categories = [
   { key: 'all' as Category,        label: 'All' },
@@ -22,6 +22,7 @@ const categories = [
   { key: 'dataArchitect' as Category,      label: 'Data Architect' },
   { key: 'python' as Category,      label: 'Python' },
   { key: 'aiEngineering' as Category,      label: 'AI Engineering' },
+  { key: 'agenticAiMcp' as Category, label: 'Agentic-AI and MCP' },
   { key: 'javascript' as Category,      label: 'Javascript and TypeScript' },
   { key: 'react' as Category,      label: 'React' },
   { key: 'angular' as Category,    label: 'Angular' },
@@ -40,7 +41,7 @@ const categories = [
 function App() {
   const [activeCat, setActiveCat] = useState<Category>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
 
   React.useEffect(() => {
     document.body.classList.toggle('dark-mode', darkMode);
@@ -48,16 +49,11 @@ function App() {
 
   return (
     <>
-      <Header onSearch={setSearchTerm} />
-
-      <button
-        className="dark-mode-toggle"
-        onClick={() => setDarkMode((dm) => !dm)}
-        aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-        title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-      >
-        {darkMode ? '☀️' : '🌙'}
-      </button>
+      <Header
+        onSearch={setSearchTerm}
+        darkMode={darkMode}
+        onToggleDarkMode={() => setDarkMode((dm) => !dm)}
+      />
 
       <div className="layout">
         <Sidebar

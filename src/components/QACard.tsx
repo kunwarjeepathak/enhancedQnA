@@ -12,7 +12,11 @@ export default function QACard({ card }: QACardProps) {
 
   return (
     <div className={`qa-card${card.important ? ' important' : ''}`} data-cat={card.category}>
-      <button className="q-header" onClick={() => setOpen(prev => !prev)}>
+      <button
+        className="q-header"
+        onClick={() => setOpen(prev => !prev)}
+        aria-expanded={open}
+      >
         <span>{card.title}</span>
         <span className={`toggle-icon${open ? ' open' : ''}`}>{open ? <KeyboardArrowDown fontSize="small" /> : <KeyboardArrowRight fontSize="small" />}</span>
         {card.important && <span className="important-badge"><Star fontSize="small" style={{ color: '#fbbf24', marginRight: 4 }} />Important</span>}
