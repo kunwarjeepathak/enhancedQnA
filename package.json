@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "engines": {
-    "node": "20.x"
+    "node": "26.x"
   },
-  "homepage": ".",
+  "homepage": "https://kunwarjeepathak.github.io/enhancedQnA",
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
