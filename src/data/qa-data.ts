@@ -39364,6 +39364,103 @@ if __name__ == "__main__":
   ]
 },
 
+{
+  category: 'agenticAiMcp',
+  title: 'Agentic AI Fundamentals',
+  subItems: [
+    {
+      question: 'What makes an AI system agentic rather than a traditional chatbot?',
+      answerMd: `
+An agent works toward a **goal over multiple steps**. It uses a model to decide what to do, calls tools through application code, observes the results, and repeats or replans until it can verify completion. A traditional chatbot usually responds to one prompt without taking action or adapting to external results.
+
+Agency is a spectrum: a fixed retrieval-and-answer pipeline is not necessarily agentic; a system that chooses whether and how to retrieve, checks the evidence, and adapts its next action is more agentic.
+
+[Read the Agentic AI guide](${process.env.PUBLIC_URL}/assets/AgenticAI/Understanding_Agentic_AI.pdf) · [Interview questions and detailed answers](${process.env.PUBLIC_URL}/assets/Agentic%20AI/Agentic%20AI%20Interview%20Questions%20Detailed%20Answers.pdf)
+`
+    },
+    {
+      question: 'What are the core parts of an agent and how does its loop work?',
+      answerMd: `
+The **model** interprets the goal and chooses an action; **tools** perform operations such as searches or updates; **memory** supplies relevant task history or persisted information; and the **orchestration loop** is ordinary application code that connects them.
+
+Typical flow:
+1. Send the goal, relevant history, and tool descriptions to the model.
+2. If the model requests a tool, validate and execute that request in application code.
+3. Add the tool result to the task history and call the model again.
+4. Stop when the model returns a final response, a verifier confirms success, or a safety limit requires escalation.
+
+The model requests an action; it does not execute the underlying function itself. See the [working Python agent example](${process.env.PUBLIC_URL}/assets/AgenticAI/simple_agent.py).
+`
+    },
+    {
+      question: 'How should an agent use memory and recover from failures?',
+      answerMd: `
+**Short-term memory** is the current task's goal, actions, and observations; summarize or trim it when the context grows. **Long-term memory** is information persisted outside the model, such as user preferences or prior task notes, and retrieved when relevant.
+
+For reliable recovery, persist workflow state outside the prompt, checkpoint verified steps, make side-effecting operations idempotent, and verify real-world state before retrying. Retry transient errors with backoff; let the agent replan after recoverable errors; escalate permission or data problems. Revalidate assumptions before resuming after a long pause.
+`
+    },
+    {
+      question: 'How do you prevent loops and evaluate an autonomous agent?',
+      answerMd: `
+Use layered safeguards: a maximum step count, time and spend budgets, repeated-action detection, progress checks, independent goal verification, and a human escalation or partial-result path.
+
+Evaluate more than final-answer accuracy:
+- **Outcome:** verified task success and partial completion.
+- **Trajectory:** tool choice, argument validity, retries, efficiency, and unsafe actions attempted.
+- **Operations and trust:** cost, latency, tool reliability, intervention rate, user corrections, and satisfaction.
+
+Test realistic tasks repeatedly, review failures, and use regression tests when prompts, models, or tools change. The interview guide includes detailed examples and follow-up questions.
+`
+    }
+  ]
+},
+{
+  category: 'agenticAiMcp',
+  title: 'Model Context Protocol (MCP)',
+  subItems: [
+    {
+      question: 'What is MCP, and what problem does it solve?',
+      answerMd: `
+**Model Context Protocol (MCP)** is an open standard for connecting AI applications to tools and data through a consistent interface. It reduces the need to build a separate custom integration for every app-and-service pair.
+
+MCP is **not an agent**: it does not reason or choose actions. The host application and its agent decide what to do; MCP standardizes how the host discovers and communicates with external capabilities.
+
+[Read the MCP guide](${process.env.PUBLIC_URL}/assets/MCP/Understanding_MCP.pdf)
+`
+    },
+    {
+      question: 'What are the MCP host, client, and server?',
+      answerMd: `
+- **Host:** the AI application containing the model and agent loop.
+- **Client:** the connector inside the host; each client manages a connection to one server.
+- **Server:** a program that exposes capabilities using MCP.
+
+A host can connect to multiple servers and present their discovered tools to the model. The MCP guide's example implements a [client](${process.env.PUBLIC_URL}/assets/MCP/mcp_agent_client.py) and a [flight server](${process.env.PUBLIC_URL}/assets/MCP/mcp_flight_server.py).
+`
+    },
+    {
+      question: 'What capabilities can an MCP server expose?',
+      answerMd: `
+The main server-provided primitives are:
+- **Tools:** callable actions or computations, such as searching for flights.
+- **Resources:** read-only context, such as user preferences or documents.
+- **Prompts:** reusable templates that a user can select.
+
+The client also has features such as sampling, roots, and elicitation, depending on the implementation and negotiated capabilities.
+`
+    },
+    {
+      question: 'How does an MCP connection work, and what should an implementation consider?',
+      answerMd: `
+An MCP client connects to a server, initializes the session and negotiates capabilities, discovers available tools or other primitives, then makes requests and receives results. MCP messages use JSON-RPC 2.0. Common transports include **stdio** for a locally launched process and **Streamable HTTP** for a remote server.
+
+Treat exposed tools as privileged operations: validate inputs and outputs, enforce least-privilege access, protect credentials, require user confirmation for consequential actions, and log/audit calls. MCP standardizes communication; it does not replace authorization or safety controls.
+`
+    }
+  ]
+},
+
 ];
 
 export default data;
