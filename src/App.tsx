@@ -3,6 +3,7 @@ import Header   from './components/Header';
 import Sidebar  from './components/Sidebar';
 import QAList   from './components/QAList';
 import { AskAI } from './AskAI';
+import './ask-ai.css';
 
 export type Category = 'all' | 'dsa'| 'java' | 'python' | 'systemDesign' | 'distributedArchitecture' | 'springBoot' | 'microservices' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'dataArchitect' | 'aiEngineering' | 'agenticAiMcp' |'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'healthcare';
 
