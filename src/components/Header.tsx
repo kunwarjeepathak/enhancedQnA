@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 
 interface HeaderProps {
   onSearch: (term: string) => void;
+  darkMode: boolean;
+  onToggleDarkMode: () => void;
 }
 
-export default function Header({ onSearch }: HeaderProps) {
+export default function Header({ onSearch, darkMode, onToggleDarkMode }: HeaderProps) {
   const [searchValue, setSearchValue] = useState('');
 
   const handleSearch = (value: string) => {
@@ -37,6 +39,14 @@ export default function Header({ onSearch }: HeaderProps) {
           ✕
         </button>
       </div>
+      <button
+        className="dark-mode-toggle"
+        onClick={onToggleDarkMode}
+        aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+        title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+      >
+        {darkMode ? '☀️' : '🌙'}
+      </button>
     </header>
   );
 }

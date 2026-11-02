@@ -27,6 +27,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   azure: 'Azure',
   dataArchitect: 'Data Architecture',
   aiEngineering: 'AI Engineering',
+  agenticAiMcp: 'Agentic-AI and MCP',
   javascript: 'JavaScript & TypeScript',
   react: 'React',
   angular: 'Angular',
