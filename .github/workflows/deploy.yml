@@ -27,6 +27,7 @@ jobs:
           npm run build
         env:
           REACT_APP_GEMINI_API_KEY: ${{ secrets.REACT_APP_GEMINI_API_KEY }}
+          PUBLIC_URL: /enhancedQnA
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4

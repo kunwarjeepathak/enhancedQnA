@@ -5,7 +5,6 @@
   "engines": {
     "node": "26.x"
   },
-  "homepage": "https://kunwarjeepathak.github.io/enhancedQnA",
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
