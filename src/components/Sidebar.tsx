@@ -29,6 +29,11 @@ import { Category } from '../App';
 interface CategoryItem { key: Category; label: string; }
 interface SidebarProps {
   categories: CategoryItem[];
+  architectureCategories: CategoryItem[];
+  userInterfaceCategories: CategoryItem[];
+  artificialIntelligenceCategories: CategoryItem[];
+  peopleManagementCategories: CategoryItem[];
+  otherCategories: CategoryItem[];
   active: Category;
   onSelect: (cat: Category) => void;
 }
@@ -64,7 +69,44 @@ const categoryIcons: Record<Category, JSX.Element> = {
   hobbies: <Palette fontSize="small" />
 };
 
-export default function Sidebar({ categories, active, onSelect }: SidebarProps) {
+export default function Sidebar({
+  categories,
+  architectureCategories,
+  userInterfaceCategories,
+  artificialIntelligenceCategories,
+  peopleManagementCategories,
+  otherCategories,
+  active,
+  onSelect
+}: SidebarProps) {
+  const [isArchitectureExpanded, setIsArchitectureExpanded] = React.useState(false);
+  const [isUserInterfaceExpanded, setIsUserInterfaceExpanded] = React.useState(false);
+  const [isArtificialIntelligenceExpanded, setIsArtificialIntelligenceExpanded] = React.useState(false);
+  const [isPeopleManagementExpanded, setIsPeopleManagementExpanded] = React.useState(false);
+  const [isOthersExpanded, setIsOthersExpanded] = React.useState(false);
+
+  const renderCategory = (cat: CategoryItem) => (
+    <li key={cat.key}>
+      <button
+        className={`sidebar-item ${active === cat.key ? 'active' : ''}`}
+        onClick={() => onSelect(cat.key)}
+        data-cat={cat.key}
+        aria-pressed={active === cat.key}
+        aria-label={`Select category ${cat.label}`}
+      >
+        <span className="category-icon">
+          {categoryIcons[cat.key]}
+        </span>
+        <span>{cat.label}</span>
+        {cat.key !== 'all' && (
+          <span className="category-count" aria-label="Number of items in category">
+            {Math.floor(Math.random() * 15) + 1}
+          </span>
+        )}
+      </button>
+    </li>
+  );
+
   return (
     <aside className="sidebar" aria-label="Category navigation">
       <div className="sidebar-header">
@@ -80,27 +122,103 @@ export default function Sidebar({ categories, active, onSelect }: SidebarProps) 
         </button>
       </div>
       <ul>
-        {categories.map(cat => (
-          <li key={cat.key}>
-            <button
-              className={`sidebar-item ${active === cat.key ? 'active' : ''}`}
-              onClick={() => onSelect(cat.key)}
-              data-cat={cat.key}
-              aria-pressed={active === cat.key}
-              aria-label={`Select category ${cat.label}`}
-            >
-              <span className="category-icon">
-                {categoryIcons[cat.key]}
-              </span>
-              <span>{cat.label}</span>
-              {cat.key !== 'all' && (
-                <span className="category-count" aria-label="Number of items in category">
-                  {Math.floor(Math.random() * 15) + 1}
-                </span>
-              )}
-            </button>
-          </li>
-        ))}
+        {categories.slice(0, 2).map(renderCategory)}
+        <li className="architecture-group">
+          <button
+            className="sidebar-item architecture-toggle"
+            onClick={() => setIsArchitectureExpanded(expanded => !expanded)}
+            aria-expanded={isArchitectureExpanded}
+            aria-controls="architecture-categories"
+          >
+            <span className="category-icon"><Engineering fontSize="small" /></span>
+            <span>Architecture</span>
+            <span className="architecture-chevron" aria-hidden="true">
+              {isArchitectureExpanded ? '−' : '+'}
+            </span>
+          </button>
+          {isArchitectureExpanded && (
+            <ul id="architecture-categories" className="architecture-subcategories">
+              {architectureCategories.map(renderCategory)}
+            </ul>
+          )}
+        </li>
+        <li className="user-interface-group">
+          <button
+            className="sidebar-item architecture-toggle"
+            onClick={() => setIsUserInterfaceExpanded(expanded => !expanded)}
+            aria-expanded={isUserInterfaceExpanded}
+            aria-controls="user-interface-categories"
+          >
+            <span className="category-icon"><Code fontSize="small" /></span>
+            <span>User Interface</span>
+            <span className="architecture-chevron" aria-hidden="true">
+              {isUserInterfaceExpanded ? '−' : '+'}
+            </span>
+          </button>
+          {isUserInterfaceExpanded && (
+            <ul id="user-interface-categories" className="architecture-subcategories">
+              {userInterfaceCategories.map(renderCategory)}
+            </ul>
+          )}
+        </li>
+        <li className="artificial-intelligence-group">
+          <button
+            className="sidebar-item architecture-toggle"
+            onClick={() => setIsArtificialIntelligenceExpanded(expanded => !expanded)}
+            aria-expanded={isArtificialIntelligenceExpanded}
+            aria-controls="artificial-intelligence-categories"
+          >
+            <span className="category-icon"><Science fontSize="small" /></span>
+            <span>Artificial Intelligence</span>
+            <span className="architecture-chevron" aria-hidden="true">
+              {isArtificialIntelligenceExpanded ? '−' : '+'}
+            </span>
+          </button>
+          {isArtificialIntelligenceExpanded && (
+            <ul id="artificial-intelligence-categories" className="architecture-subcategories">
+              {artificialIntelligenceCategories.map(renderCategory)}
+            </ul>
+          )}
+        </li>
+        <li className="people-management-group">
+          <button
+            className="sidebar-item architecture-toggle"
+            onClick={() => setIsPeopleManagementExpanded(expanded => !expanded)}
+            aria-expanded={isPeopleManagementExpanded}
+            aria-controls="people-management-categories"
+          >
+            <span className="category-icon"><Groups fontSize="small" /></span>
+            <span>People management</span>
+            <span className="architecture-chevron" aria-hidden="true">
+              {isPeopleManagementExpanded ? '−' : '+'}
+            </span>
+          </button>
+          {isPeopleManagementExpanded && (
+            <ul id="people-management-categories" className="architecture-subcategories">
+              {peopleManagementCategories.map(renderCategory)}
+            </ul>
+          )}
+        </li>
+        <li className="others-group">
+          <button
+            className="sidebar-item architecture-toggle"
+            onClick={() => setIsOthersExpanded(expanded => !expanded)}
+            aria-expanded={isOthersExpanded}
+            aria-controls="other-categories"
+          >
+            <span className="category-icon"><ListAlt fontSize="small" /></span>
+            <span>Others</span>
+            <span className="architecture-chevron" aria-hidden="true">
+              {isOthersExpanded ? '−' : '+'}
+            </span>
+          </button>
+          {isOthersExpanded && (
+            <ul id="other-categories" className="architecture-subcategories">
+              {otherCategories.map(renderCategory)}
+            </ul>
+          )}
+        </li>
+        {categories.slice(2).map(renderCategory)}
       </ul>
     </aside>
   );
