@@ -831,6 +831,25 @@ header input::placeholder {
   font-weight: 500;
 }
 
+.architecture-toggle {
+  font-weight: 600;
+}
+
+.architecture-chevron {
+  margin-left: auto;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.sidebar .architecture-subcategories {
+  display: block;
+  padding-left: 1rem;
+}
+
+.sidebar .architecture-subcategories li {
+  flex: 0 0 100%;
+}
+
  
 
 .content-old {
