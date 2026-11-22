@@ -5,7 +5,7 @@ import QAList   from './components/QAList';
 import { AskAI } from './AskAI';
 import './ask-ai.css';
 
-export type Category = 'all' | 'dsa'| 'java' | 'python' | 'systemDesign' | 'distributedArchitecture' | 'springBoot' | 'microservices' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'dataArchitect' | 'aiEngineering' | 'agenticAiMcp' |'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'healthcare';
+export type Category = 'all' | 'dsa'| 'java' | 'python' | 'systemDesign' | 'distributedArchitecture' | 'springBoot' | 'microservices' | 'cloud' | 'devOps' |'kafka' | 'aws' | 'azure' | 'dataArchitect' | 'aiEngineering' | 'aiArchitecture' | 'agenticAiMcp' |'javascript' |'react' | 'angular'| 'database' | 'python' | 'golang' | 'leadership'| 'communication' | 'JPMCQuestions' | 'hobbies' | 'engineeringManager' | 'healthcare';
 
 const categories = [
   { key: 'all' as Category,        label: 'All' },
@@ -38,6 +38,7 @@ const userInterfaceCategories = [
 const artificialIntelligenceCategories = [
   { key: 'python' as Category, label: 'Python' },
   { key: 'aiEngineering' as Category, label: 'AI Engineering' },
+  { key: 'aiArchitecture' as Category, label: 'AI-Architecture' },
   { key: 'agenticAiMcp' as Category, label: 'Agentic-AI and MCP' }
 ];
 
