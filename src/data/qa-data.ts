@@ -39461,6 +39461,32 @@ Treat exposed tools as privileged operations: validate inputs and outputs, enfor
   ]
 },
 
+{
+  category: 'aiArchitecture',
+  title: 'AI-Architecture Interview Preparation',
+  important: true,
+  subItems: [
+    {
+      question: 'AI Architect Interview Prep - Simple English',
+      important: true,
+      answerMd: `
+[View or download AI Architect Interview Prep - Simple English](${process.env.PUBLIC_URL}/assets/Agentic%20AI/AI_Architect_Interview_Prep_Simple_English.pdf)
+
+44 scenario questions covering ML, scikit-learn, deep learning, PyTorch, transformers, and architect-level system design.
+`
+    },
+    {
+      question: 'AI Security Interview Prep - Simple English',
+      important: true,
+      answerMd: `
+[View or download AI Security Interview Prep - Simple English](${process.env.PUBLIC_URL}/assets/Agentic%20AI/AI_Security_Interview_Prep_Simple_English.pdf)
+
+39 scenario questions covering LLM attacks, ML model security, AI defence, governance, and secure architecture.
+`
+    }
+  ]
+},
+
 ];
 
 export default data;

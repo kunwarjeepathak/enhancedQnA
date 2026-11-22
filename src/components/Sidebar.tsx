@@ -48,6 +48,7 @@ const categoryIcons: Record<Category, JSX.Element> = {
   springBoot: <Nature fontSize="small" />,
   microservices: <Nature fontSize="small" />,
   aiEngineering: <Nature fontSize="small" />,
+  aiArchitecture: <Science fontSize="small" />,
   agenticAiMcp: <Science fontSize="small" />,
   cloud: <Cloud fontSize="small" />,
   devOps: <BuildCircle fontSize="small" />,
